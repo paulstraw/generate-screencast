@@ -1,0 +1,177 @@
+<!doctype html>
+<!--
+  Terminal replay stage. Film it at 1920x1080 and
+  drive it with page.evaluate: __run({ cmd, lines: [[msAfterEnter, html]] }).
+  Line HTML may use the classes below (p/cmd/dim/ok/strong/url/badge-*).
+  Content must be curated REAL command output, never invented.
+-->
+<meta charset="utf-8" />
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+  }
+  body {
+    background: radial-gradient(1200px 800px at 50% 42%, #171a23 0%, #0b0d12 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+  .win {
+    width: 1380px;
+    height: 780px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #14161d;
+    box-shadow:
+      0 30px 90px rgba(0, 0, 0, 0.55),
+      0 2px 8px rgba(0, 0, 0, 0.4);
+    border: 1px solid #23262f;
+  }
+  .bar {
+    height: 46px;
+    background: #1b1e27;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    position: relative;
+    border-bottom: 1px solid #23262f;
+  }
+  .dot {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    margin-right: 9px;
+  }
+  .title {
+    position: absolute;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: #8a93a5;
+    font-size: 15px;
+    pointer-events: none;
+  }
+  .screen {
+    padding: 26px 30px;
+    font-size: 17.5px;
+    line-height: 1.75;
+    color: #aab3c4;
+    white-space: pre-wrap;
+  }
+  .row {
+    min-height: 30.6px;
+  }
+  .p {
+    color: #34d399;
+    font-weight: 700;
+  }
+  .cmd {
+    color: #eef2f8;
+  }
+  .dim {
+    color: #6b7484;
+  }
+  .ok {
+    color: #34d399;
+  }
+  .strong {
+    color: #eef2f8;
+    font-weight: 700;
+  }
+  .url {
+    color: #7dd3fc;
+    text-decoration: underline;
+  }
+  .badge-run {
+    background: #67e8f9;
+    color: #0b0d12;
+    font-weight: 700;
+    padding: 0 7px;
+    border-radius: 3px;
+  }
+  .badge-dark {
+    background: #fbbf24;
+    color: #0b0d12;
+    padding: 0 7px;
+    border-radius: 3px;
+  }
+  .badge-light {
+    background: #e879f9;
+    color: #0b0d12;
+    padding: 0 7px;
+    border-radius: 3px;
+  }
+  .badge-unit {
+    background: #a3e635;
+    color: #0b0d12;
+    padding: 0 7px;
+    border-radius: 3px;
+  }
+  .caret {
+    display: inline-block;
+    width: 10px;
+    height: 22px;
+    background: #aab3c4;
+    vertical-align: -4px;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+</style>
+<div class="win">
+  <div class="bar">
+    <div class="dot" style="background: #ff5f57"></div>
+    <div class="dot" style="background: #febc2e"></div>
+    <div class="dot" style="background: #28c840"></div>
+    <div class="title" id="title">zsh</div>
+  </div>
+  <div class="screen" id="screen"></div>
+</div>
+<script>
+  window.__run = ({ cmd, lines, prompt = '~', title }) => {
+    if (title) document.getElementById('title').textContent = title;
+    const screen = document.getElementById('screen');
+    const row = (html) => {
+      const el = document.createElement('div');
+      el.className = 'row';
+      el.innerHTML = html;
+      screen.appendChild(el);
+      return el;
+    };
+    const first = row(
+      `<span class="p">➜  ${prompt}</span> <span class="cmd" id="typed"></span><span class="caret" id="caret"></span>`,
+    );
+    void first;
+    const typed = document.getElementById('typed');
+
+    const TYPE_START = 350;
+    const TYPE_MS = 42;
+    [...cmd].forEach((ch, i) => {
+      setTimeout(() => {
+        typed.textContent += ch;
+      }, TYPE_START + i * TYPE_MS);
+    });
+    const enterAt = TYPE_START + cmd.length * TYPE_MS + 260;
+
+    for (const [t, html] of lines) {
+      setTimeout(() => row(html), enterAt + t);
+    }
+    const last = lines[lines.length - 1][0];
+    setTimeout(() => {
+      document.getElementById('caret').remove();
+      row(`<br /><span class="p">➜  ${prompt}</span> <span class="caret"></span>`);
+    }, enterAt + last + 500);
+  };
+</script>
