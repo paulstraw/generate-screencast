@@ -27,8 +27,27 @@ await browser.close();
   above iframes, so one cursor covers the whole viewport.
 - A full page load re-runs the init script and the cursor starts hidden until the next `setCur`/`glide` — call `setCur`
   after every `goto`. Client-side (SPA) navigation keeps the cursor.
+- Recon the **result** of each click, not just its position: a click can move the app somewhere else (a dot that switches
+  tabs), and the next mark's choreography starts from wherever it lands.
 - Check the port a dev server actually printed before pointing Playwright at it. A busy port usually means an instance
   is already up — filming is read-only, so use it.
+
+## Re-shootable takes
+
+When a scene sends data (a reply, a save), hold writes so the server never sees them and the scene can be re-shot
+indefinitely. Let boot-time writes through first (session resume, auth refresh), then fulfil nothing that writes:
+
+```js
+let booted = false;
+await page.route('**/api/**', (route) =>
+  !booted || route.request().method() === 'GET' ? route.continue() : undefined, // a held write never resolves
+);
+await page.goto(URL, { waitUntil: 'networkidle' });
+booted = true;
+```
+
+UI that renders optimistically still shows the action on screen. Check in recon that it does; UI that waits for the
+server needs its response faked with `route.fulfill` instead.
 
 ## Deployed or remote URLs
 

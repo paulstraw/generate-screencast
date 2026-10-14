@@ -31,6 +31,8 @@ Interview the user, or confirm what's already specified. Nothing is produced unt
 - **Aspect** — 1920×1080. When every beat is mobile, ask: 16:9 with the phone framed on a stage, or portrait 1080×1920.
 
 The **truth rule** outranks any draft: the voiceover never claims something the screen doesn't show at that moment.
+Overlays that are visibly annotation (numbered rings on "the chat, the thread, the console") are within it, and they make
+an enumeration land.
 
 - Footage that doesn't exist yet (a page, a flow, a state) is built for real. In the user's project: propose the change,
   get approval, and pass that project's own checks (its CLAUDE.md/AGENTS.md, tests, lint). For a purely illustrative beat,
@@ -88,7 +90,9 @@ Write one `film.mjs` in the workdir, one recorded scene per beat, every action s
 and accept a scene-name argv filter so single scenes can be re-shot (`node film.mjs s3`).
 
 **Recon first**: screenshot every screen you plan to film and look at the image before writing choreography. What a screen
-looks like, and where its controls sit, is never safe to assume.
+looks like, and where its controls sit, is never safe to assume. Reuse existing state before generating new state: a
+project's prior dev sessions, seeded accounts or saved data often already hold every state the beats need, more cleanly
+than a fresh nondeterministic run would.
 
 Each recording starts early and ends exactly when its clock runs out — load and settle noise sits at the front and is
 trimmed away in assembly. So clock marks are scene time: start the clock when the screen is ready, end it at
@@ -99,7 +103,9 @@ done, and tell them when they can have the machine back.
 
 ## 5. QA — non-negotiable
 
-Extract frames across every scene's trim window (`ffmpeg -ss … -frames:v 1`) and look at them. Check, at each VO moment:
+Extract frames across every scene's trim window and look at them. `<skill>/assets/qa-grid.sh` tiles a scene's frames at
+given scene times (VO marks included) into one image, mapping them into the raw recording the way assembly trims it.
+Check, at each VO moment:
 
 - the thing being narrated is on screen (truth rule);
 - the cursor or touch indicator is visible where action happens; mode or state flips happened;
