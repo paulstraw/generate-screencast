@@ -34,8 +34,8 @@ npx skills add paulstraw/generate-screencast       # this project only
 Or by hand: clone the repo anywhere and link the skill folder into your agent's skills directory, e.g. for Claude Code:
 
 ```bash
-git clone https://github.com/paulstraw/generate-screencast ~/src/generate-screencast
-ln -s ~/src/generate-screencast/skills/generate-screencast ~/.claude/skills/generate-screencast
+git clone https://github.com/paulstraw/generate-screencast ~/dev/generate-screencast
+ln -s ~/dev/generate-screencast/skills/generate-screencast ~/.claude/skills/generate-screencast
 ```
 
 Then ask your agent for a video: _"make a 45-second walkthrough of the signup flow"_.
