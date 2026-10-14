@@ -8,12 +8,15 @@
  *   {
  *     "out": "/Users/me/Downloads/tour-2026-10-13.mp4",
  *     "size": [1920, 1080],               // optional; [1080, 1920] for portrait
+ *     "normalize": true,                  // optional; two-pass loudnorm per VO clip (human VO)
  *     "scenes": [{ "video": "scenes/s1.webm", "vo": "vo/beat1.mp3" }, …]
  *   }
  *
  * Scene length = 0.5s lead + VO + 0.5s tail (1.0s on the last). Each clip
  * keeps the LAST target-seconds of its recording, and VO offsets come from the
  * actual clip durations, so frame rounding never accumulates into drift.
+ * Normalizing each clip before the mix keeps dynamic processing off the
+ * finished track, where it pumps at beat starts.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -35,6 +38,18 @@ const dur = (f) =>
 const work = path.join(base, 'assembly');
 fs.mkdirSync(work, { recursive: true });
 
+const LOUDNORM = 'loudnorm=I=-16:TP=-1.5:LRA=11';
+function normalize(src, i) {
+  const pass1 = spawnSync('ffmpeg', ['-hide_banner', '-i', src, '-af', `${LOUDNORM}:print_format=json`, '-f', 'null', '-'], {
+    encoding: 'utf8',
+  }).stderr;
+  const j = JSON.parse(pass1.slice(pass1.lastIndexOf('{'), pass1.lastIndexOf('}') + 1));
+  const out = path.join(work, `vo${i + 1}.wav`);
+  ff('-i', src, '-af', `${LOUDNORM}:measured_I=${j.input_i}:measured_TP=${j.input_tp}:measured_LRA=${j.input_lra}` +
+    `:measured_thresh=${j.input_thresh}:offset=${j.target_offset}:linear=true`, '-ar', '48000', out);
+  return out;
+}
+
 const clips = m.scenes.map((s, i) => {
   const last = i === m.scenes.length - 1;
   const voDur = dur(abs(s.vo));
@@ -46,7 +61,7 @@ const clips = m.scenes.map((s, i) => {
   ff('-i', src, '-ss', (srcDur - target).toFixed(3), '-t', String(target), '-r', '30',
     '-vf', `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=0x0b0d12,setsar=1`,
     '-c:v', 'libx264', '-crf', '19', '-pix_fmt', 'yuv420p', '-an', clip);
-  return { clip, vo: abs(s.vo), target, actual: dur(clip) };
+  return { clip, vo: m.normalize ? normalize(abs(s.vo), i) : abs(s.vo), target, actual: dur(clip) };
 });
 
 const list = path.join(work, 'concat.txt');

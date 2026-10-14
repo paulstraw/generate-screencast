@@ -50,6 +50,8 @@ Then ask your agent for a video: _"make a 45-second walkthrough of the signup fl
 - **macOS apps and iOS:** macOS, Xcode Command Line Tools (to compile the input driver), and Screen Recording and
   Accessibility permission for the terminal or editor running your agent. iOS also needs Xcode and a simulator.
 - **Android:** the Android SDK (`adb`, `emulator`) and an emulator.
+- **Narrating it yourself:** `sox` for recording, and an Apple Silicon Mac for transcribing your takes with
+  `mlx-whisper`.
 
 Tested on macOS with Claude Code. Web and terminal scenes should work wherever Playwright and ffmpeg run; the hybrid mode
 is not yet tested.
@@ -63,7 +65,8 @@ is not yet tested.
 - **The narration text is sent to Microsoft's online TTS service.** [edge-tts](https://github.com/rany2/edge-tts) uses
   the read-aloud endpoint behind Microsoft Edge. It needs no API key, but it's an unofficial use of that service, and it's
   unclear whether you have commercial rights to the generated audio. Don't put anything confidential in a script, and
-  check your own requirements before using the audio in client or commercial work.
+  check your own requirements before using the audio in client or commercial work. Or narrate it yourself: a teleprompter
+  records one take per beat, and nothing is sent anywhere.
 - **The narration never claims anything the screen doesn't show.** If a scene needs something that doesn't exist yet,
   the agent proposes building it for real (with your approval) rather than faking it. Terminal output is real output
   with the noise removed, never invented.
@@ -72,7 +75,7 @@ is not yet tested.
 
 1. **Shape** — the agent interviews you about subject, audience, beats and where the video goes (default
    `~/Downloads/<slug>-<date>.mp4`). It produces nothing until you approve the script word for word.
-2. **Voiceover** — one TTS clip per beat. Each clip's measured length sets its scene's length.
+2. **Voiceover** — one clip per beat, from TTS or read by you. Each clip's measured length sets its scene's length.
 3. **Film** — each scene is recorded on a clock, so actions land on the spoken words.
 4. **QA** — the agent extracts frames across every scene and looks at them, then re-shoots anything that's wrong or
    shows something private.

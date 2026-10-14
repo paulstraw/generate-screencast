@@ -1,14 +1,14 @@
 ---
 name: generate-screencast
 description:
-  Produce a short Loom-style screencast — a scripted recording of real running software with an AI voiceover — in any
-  project. Use when asked to make a video, demo, tour, or walkthrough of a web app, Storybook, a terminal workflow, a
-  macOS app, or an iOS/Android app, or to refresh an existing one.
+  Produce a short Loom-style screencast — a scripted recording of real running software with an AI voiceover or the
+  user's own narration — in any project. Use when asked to make a video, demo, tour, or walkthrough of a web app,
+  Storybook, a terminal workflow, a macOS app, or an iOS/Android app, or to refresh an existing one.
 ---
 
 # Generate a screencast
 
-Fully AI-produced video: script → per-beat TTS voiceover (its measured durations drive every scene length) → scenes filmed
+Script → per-beat voiceover, TTS or the user's own voice (its measured durations drive every scene length) → scenes filmed
 on a **clock** from real running surfaces → QA → ffmpeg assembly. Working files live in a **workdir**: a `screencast/`
 folder in the session scratchpad if your harness provides one, otherwise in a fresh `mktemp -d`. Only the deliverables
 leave it.
@@ -26,7 +26,8 @@ Interview the user, or confirm what's already specified. Nothing is produced unt
 - **Deliverable** — default `~/Downloads/<slug>-<YYYY-MM-DD>.mp4`, plus the approved script beside it as
   `<slug>-<YYYY-MM-DD>.script.md`. Offer a repo path (e.g. `docs/<slug>.mp4`) when the video belongs to the project.
 - **Voice** — default `en-US-AndrewNeural`. Offer another voice or locale when the audience calls for it
-  (`uvx edge-tts --list-voices`).
+  (`uvx edge-tts --list-voices`). When the user narrates in their own voice, load
+  [references/human-vo.md](references/human-vo.md): it replaces §3.
 - **Aspect** — 1920×1080. When every beat is mobile, ask: 16:9 with the phone framed on a stage, or portrait 1080×1920.
 
 The **truth rule** outranks any draft: the voiceover never claims something the screen doesn't show at that moment.
@@ -47,6 +48,7 @@ Detect everything the beats need and offer **one** `brew install …` (or equiva
 | macOS / iOS beats       | `swiftc` (builds `mousectl`); the permission probe in [references/macos.md](references/macos.md) |
 | iOS beats               | `xcrun simctl`, a booted simulator                                                  |
 | Android beats           | `adb`, a running emulator                                                           |
+| human-read voiceover    | `sox`; Apple Silicon for `mlx-whisper` (via `uvx`)                                  |
 
 Playwright always installs into the workdir, never the project, so the project's lockfile is never touched:
 
@@ -67,6 +69,8 @@ Then load the reference for every surface the script uses — each holds the rec
 Done when every tool is present, every needed permission is granted, and every surface to be filmed is running.
 
 ## 3. Voiceover
+
+For a human-read voiceover, follow [references/human-vo.md](references/human-vo.md) instead.
 
 - One clip per beat: `uvx edge-tts --voice <voice> --text "…" --write-media vo/beatN.mp3`. It's a free online service
   that occasionally hangs: wrap each call in a timeout and retry (`perl -e 'alarm 30; exec @ARGV' uvx edge-tts …`).
@@ -115,9 +119,12 @@ see their references), then write a manifest and run `<skill>/assets/assemble.mj
 It trims each recording to its **last** 0.5 + VO + 0.5s (1.0s tail on the final scene) — the 0.5s lead is a static hold,
 so ±0.3s drift is invisible — concatenates, places each VO at its clip's actual start + 0.5s, muxes with faststart, and
 prints per-scene timings plus loudness (healthy: mean −18…−26 dB, max < −1 dB). It fails loudly if a recording is shorter
-than its scene. Add `"size": [1080, 1920]` for portrait.
+than its scene. Add `"size": [1080, 1920]` for portrait, and `"normalize": true` for a human-read voiceover (two-pass
+loudnorm on each clip before the mix, so the finished track needs no dynamic processing).
 
-Write the `.script.md` beside the video, then spot-check frames at beat boundaries in the final file.
+Write the `.script.md` beside the video, then spot-check frames at beat boundaries in the final file. For a human-read
+voiceover, the user also listens to the final file once and confirms it sounds clean: frames check the picture, and only
+a human ear checks the audio.
 
 ## Cleanup
 
