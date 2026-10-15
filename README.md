@@ -52,6 +52,8 @@ Then ask your agent for a video: _"make a 45-second walkthrough of the signup fl
 - **Android:** the Android SDK (`adb`, `emulator`) and an emulator.
 - **Narrating it yourself:** `sox` for recording, and an Apple Silicon Mac for transcribing your takes with
   `mlx-whisper`.
+- **Your face on camera** (with your own narration): macOS, Xcode Command Line Tools, and Camera permission for your
+  terminal. The camera records during your voiceover takes and goes in as a Loom-style bubble or a fullscreen cut.
 
 Tested on macOS with Claude Code. Web and terminal scenes should work wherever Playwright and ffmpeg run; the hybrid mode
 is not yet tested.
