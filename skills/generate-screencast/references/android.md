@@ -42,4 +42,5 @@ trim-from-the-end stays aligned. It caps at 180s per file — one scene per reco
 Material ripple plus show-touches is the touch indicator; no `ripples.mjs` pass. Turn `show_touches` back off at cleanup
 (`adb shell settings put system show_touches 0`).
 
-Framing: `node device-frame.mjs scenes/s3.mp4 scenes/s3.framed.mp4` for 16:9, or portrait throughout (see [ios.md](ios.md)).
+Framing: `node device-frame.mjs scenes/s3.mp4 scenes/s3.framed.mp4` for 16:9 (add `--height 820 --top 30` with
+burned-in captions), or portrait throughout (see [ios.md](ios.md)).
