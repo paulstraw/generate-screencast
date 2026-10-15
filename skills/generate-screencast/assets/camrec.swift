@@ -123,6 +123,14 @@ func openCamera(_ session: AVCaptureSession, _ cam: AVCaptureDevice) {
     cam.activeVideoMaxFrameDuration = frame
   }
   FileHandle.standardError.write("camrec: \(cam.localizedName) at \(describe(fmt))\n".data(using: .utf8)!)
+  if let w = slowWarning(fmt) { FileHandle.standardError.write("camrec: \(w)\n".data(using: .utf8)!) }
+}
+
+// A capture card offers only what its HDMI source sends; a camera outputting
+// 24p ends up stuttering when assembly converts it to 30fps.
+func slowWarning(_ f: AVCaptureDevice.Format) -> String? {
+  let best = f.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
+  return best < 29.9 ? String(format: "warning: only %.2f fps; set the camera's HDMI output to 1080p30 or 60", best) : nil
 }
 
 func decodeAudio(_ mov: URL, _ wav: URL) async throws {
@@ -231,7 +239,7 @@ case "list":
   print("\nCameras:")
   for d in devices(.video) {
     let (f, _) = pickFormat(d)
-    print("  \(d.localizedName)  → would record \(describe(f))")
+    print("  \(d.localizedName)  → would record \(describe(f))\(slowWarning(f).map { "  ← \($0)" } ?? "")")
   }
   print("\nMicrophones (default: \(AVCaptureDevice.default(for: .audio)?.localizedName ?? "none")):")
   for d in devices(.audio) { print("  \(d.localizedName)") }

@@ -60,7 +60,9 @@ this".
 1. Build the recorder and list devices: `swiftc -O <skill>/assets/camrec.swift -o <workdir>/camrec`, then
    `<workdir>/camrec list`. It prints the Camera and Microphone permission status for the app running the terminal, each
    camera with the format it would record (read from the device, because capture cards and Continuity Camera only accept
-   their own exact formats), and the mics. Denied permission is fixed in System Settings ▸ Privacy & Security ▸ Camera
+   their own exact formats), and the mics. A camera flagged below 30fps stutters once assembly converts it to 30fps.
+   Behind a capture card, that means the camera's HDMI output is set to 24p (often 4K24): have the user switch it to
+   1080p30 or 1080p60, which also makes the files much smaller. Denied permission is fixed in System Settings ▸ Privacy & Security ▸ Camera
    (or Microphone); the first capture prompts if it was never asked.
 2. Check framing: `<workdir>/camrec snapshot "<camera>" cam/snapshot.jpg` waits 2s for exposure to settle, saves one
    frame, and you look at it. Check framing, lighting and focus, and the room as a privacy check: what's behind the
