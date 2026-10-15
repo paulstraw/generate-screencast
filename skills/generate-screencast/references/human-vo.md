@@ -51,7 +51,7 @@ of `vo/beatN.wav` + tail, as in §3.
 
 The user's face can go in the video too: a Loom-style bubble over the screen (`pip`), or the camera fullscreen in place
 of the screen (`full`). The camera records during the same teleprompter takes, so each beat's footage is exactly as long
-as its VO and in sync with it. In Shape, ask whether they want it, and mark each beat `pip`, `full` or `off`. Only a beat
+as its VO and, apart from the camera's own latency (the clap test below), in sync with it. In Shape, ask whether they want it, and mark each beat `pip`, `full` or `off`. Only a beat
 that isn't narrating the UI can be `full`, because the truth rule still holds: an intro, an outro, a "here's why I built
 this".
 
@@ -66,11 +66,21 @@ this".
    frame, and you look at it. Check framing, lighting and focus, and the room as a privacy check: what's behind the
    user, other people, other screens, anything on the walls. An all-black frame means the camera feeding a capture card
    is off or asleep.
+3. Measure the camera's lag with a clap test. A camera behind a capture card (Cam Link, Elgato) delivers each frame
+   100–200ms after the moment it shows, because of HDMI output and conversion latency, while USB audio arrives almost
+   at once. A USB webcam is usually close to zero, so test either way. The user runs
+   `<workdir>/camrec record "<camera>" "<mic>" cam/clap.mov`, waits for `rec`, claps three times slowly with their hands
+   in frame, and presses Ctrl+C. Find the claps in the decoded audio:
+   `ffmpeg -i cam/clap.wav -af "pan=mono|c0=c0,asetnsamples=48,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level" -f null -`
+   Each onset is the first time a 1ms peak rises above −20 dB after a quiet stretch. For each onset, tile the frames
+   that follow it, with their times (`-copyts -ss <onset − 0.1> -i cam/clap.mov -vf showinfo,…,tile=8x2`). Find the
+   first frame where the hands are together, not just blurred mid-swing. Lag = contact time − onset. Take the value that
+   fits every clap, to the nearest 10ms. A Cam Link 4K behind a mirrorless camera measured 150ms.
 
 **Record** with `--camera`:
 
 ```bash
-cd <workdir> && node <skill>/assets/record-vo.mjs --camera "Cam Link 4K" --device "Scarlett Solo USB"
+cd <workdir> && node <skill>/assets/record-vo.mjs --camera "Cam Link 4K" --device "Scarlett Solo USB" --cam-delay 0.15
 ```
 
 `camrec` (built on first use if it isn't in the workdir) replaces sox for these takes: one AVFoundation capture session
@@ -78,7 +88,8 @@ writes camera and mic into `cam/raw/beatN.mov` (H.264 video, 24-bit audio). The 
 before the 3-2-1 countdown, so exposure has settled by the first word. It pulls the take's audio out to
 `vo/raw/beatN.wav`, picking `--channel` there with an ffmpeg `pan`. Trimming then runs as usual, so `vo/trims.json`
 offsets index the camera footage too. `--device` names the mic as `camrec list` shows it. With the camera on, `p` plays
-the trimmed take with its picture (in an `ffplay` window, when ffplay is installed).
+the trimmed take with its picture (in an `ffplay` window, when ffplay is installed), delayed by `--cam-delay` (the
+clap-test lag) so it plays in sync.
 
 - **ffmpeg can't read AVFoundation's raw 24-bit audio.** It stores samples "unpacked in 4 bytes" under a plain `lpcm`
   tag, and ffmpeg decodes that as loud static with the voice faintly underneath. Asking AVFoundation for 16- or 32-bit
@@ -98,7 +109,8 @@ before trimming.
 { "video": "scenes/s2.webm", "vo": "vo/beat2.wav", "cam": "cam/raw/beat2.mov", "camTrim": [2.13, 9.87], "camMode": "pip" }
 ```
 
-`camTrim` is the beat's `vo/trims.json` entry. A `full` scene needs no `video`. The bubble defaults to a circle 22% of
+`camTrim` is the beat's `vo/trims.json` entry. Put the clap-test lag in the manifest as `"camDelay": 0.15`; assembly
+takes each camera frame that much later, which puts the lips back on the words. A `full` scene needs no `video`. The bubble defaults to a circle 22% of
 the frame's short side, 48px in from the bottom-left corner. Set the manifest-level
 `"bubble": { "position": "bottom-right", "size": 0.18, "margin": 48 }` to change it, or `bubble` on a scene to override
 it for that beat. The 0.5s lead and tail around each VO are real camera footage from the raw take: the end of the

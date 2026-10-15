@@ -10,6 +10,7 @@
  *     "size": [1920, 1080],               // optional; [1080, 1920] for portrait
  *     "normalize": true,                  // optional; two-pass loudnorm per VO clip (human VO)
  *     "bubble": { "position": "bottom-left", "size": 0.22, "margin": 48 },  // optional; camera bubble defaults
+ *     "camDelay": 0.15,                   // optional; seconds the camera's picture lags its sound (clap test)
  *     "scenes": [{ "video": "scenes/s1.webm", "vo": "vo/beat1.mp3" }, …]
  *   }
  *
@@ -22,7 +23,9 @@
  * top|bottom-left|right. full replaces the screen with the camera, cropped to
  * fill (a full scene needs no "video"). The raw take's frame at camTrim[0] (the
  * VO's first sample) lands at clip start + 0.5s, so the lead and tail are real
- * footage too.
+ * footage too. A capture card timestamps frames late (HDMI and conversion
+ * latency), so camDelay takes the picture that much later to put lips back on
+ * the words.
  *
  * Scene length = 0.5s lead + VO + 0.5s tail (1.0s on the last). Each clip
  * keeps the LAST target-seconds of its recording, and VO offsets come from the
@@ -102,7 +105,7 @@ const clips = m.scenes.map((s, i) => {
   if (!Array.isArray(s.camTrim)) throw new Error(`scene ${i + 1}: cam needs camTrim (its vo/trims.json entry)`);
   // Camera frames from 0.5s before the VO's first sample; clone the first or
   // last frame where the raw take doesn't reach that far.
-  const camStart = s.camTrim[0] - 0.5;
+  const camStart = s.camTrim[0] - 0.5 + (m.camDelay || 0);
   const camIdx = inputs.length ? 1 : 0;
   inputs.push('-ss', Math.max(0, camStart).toFixed(3), '-t', (target + 1).toFixed(3), '-i', abs(s.cam));
   const cam = `[${camIdx}:v]setpts=PTS-STARTPTS,fps=30,` +

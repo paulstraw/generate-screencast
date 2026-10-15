@@ -5,7 +5,7 @@
  * there and writes vo/ (and cam/).
  *
  *   node record-vo.mjs [beat numbers…] [--script x.script.md] [--device "Scarlett Solo USB"] [--channel 0|1|mix]
- *                      [--camera "Cam Link 4K"]
+ *                      [--camera "Cam Link 4K"] [--cam-delay 0.15]
  *
  * --device defaults to the system default input; --channel picks an input of a
  * multi-input interface (0 = first). Raw takes go to vo/raw/beatN.wav (the
@@ -16,7 +16,9 @@
  * --camera records each take with camrec (camera + mic in one .mov, built from
  * camrec.swift beside this script on first use) instead of sox: the raw take is
  * cam/raw/beatN.mov, and vo/raw/beatN.wav is its audio, so trims.json offsets
- * index the camera footage too.
+ * index the camera footage too. --cam-delay (seconds the picture lags the
+ * sound, from a clap test) only lines up the p preview; assembly takes the same
+ * value as the manifest's camDelay.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,6 +37,7 @@ const opt = (name, fallback) => {
 const device = opt('--device', 'default');
 const channel = opt('--channel', '0');
 const camera = opt('--camera', null);
+const camDelay = Number(opt('--cam-delay', '0'));
 const scriptPath = opt('--script', readdirSync(here).find((f) => f.endsWith('.script.md')));
 if (!scriptPath) {
   console.error('no *.script.md in the current directory; pass --script');
@@ -252,7 +255,8 @@ const play = (n, take) => {
   if (!camera || !hasFfplay || !existsSync(mov) || !trim) return spawn('afplay', [take], { stdio: 'ignore' });
   return spawn('ffplay', ['-hide_banner', '-loglevel', 'error', '-autoexit', '-window_title', `Beat ${n}`,
     '-ss', String(trim[0]), '-t', (trim[1] - trim[0]).toFixed(3), '-vf', 'scale=-2:540',
-    '-af', `pan=mono|c0=${pickChannel(audioInfo(mov).chans)}`, mov], { stdio: 'ignore' });
+    '-af', `pan=mono|c0=${pickChannel(audioInfo(mov).chans)},adelay=${Math.round(camDelay * 1000)}`, mov],
+    { stdio: 'ignore' });
 };
 
 let player = null;
