@@ -77,7 +77,8 @@ this".
    Each onset is the first time a 1ms peak rises above −20 dB after a quiet stretch. For each onset, tile the frames
    that follow it, with their times (`-copyts -ss <onset − 0.1> -i cam/clap.mov -vf showinfo,…,tile=8x2`). Find the
    first frame where the hands are together, not just blurred mid-swing. Lag = contact time − onset. Take the value that
-   fits every clap, to the nearest 10ms. A Cam Link 4K behind a mirrorless camera measured 150ms.
+   fits every clap, to the nearest 10ms. A Cam Link 4K behind a mirrorless camera measured 150ms with 4K24 output and
+   180ms with 4K30, so measure again whenever the camera's output mode changes.
 
 **Record** with `--camera`:
 

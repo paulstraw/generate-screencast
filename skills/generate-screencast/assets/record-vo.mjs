@@ -133,8 +133,16 @@ const speechBounds = (file) => {
   const total = probe(file).dur;
   const log = spawnSync('ffmpeg', ['-hide_banner', '-i', file, '-af', 'silencedetect=noise=-45dB:d=0.15', '-f', 'null', '-'],
     { encoding: 'utf8' }).stderr;
-  const starts = [...log.matchAll(/silence_start: (-?[\d.]+)/g)].map((x) => Math.max(0, Number(x[1])));
-  const ends = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((x) => Number(x[1]));
+  const rawStarts = [...log.matchAll(/silence_start: (-?[\d.]+)/g)].map((x) => Math.max(0, Number(x[1])));
+  const rawEnds = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((x) => Number(x[1]));
+  // Merge silences split by under 50ms of sound: mic clicks (~1ms) aren't
+  // speech, and would otherwise pull the trim a second early.
+  const starts = [], ends = [];
+  rawStarts.forEach((st, i) => {
+    if (starts.length && ends.length === starts.length && st - ends.at(-1) < 0.05) ends.pop();
+    else starts.push(st);
+    if (rawEnds[i] !== undefined) ends.push(rawEnds[i]);
+  });
   let from = 0, to = total;
   if (starts.length && starts[0] < 0.01) from = ends[0] ?? total;     // leading silence
   const last = starts.at(-1);
