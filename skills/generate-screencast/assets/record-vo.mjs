@@ -19,7 +19,7 @@
  * index the camera footage too.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -178,17 +178,32 @@ const startCam = async (mov) => {
 };
 
 // The camera's audio, cut down to the chosen input of a multi-input interface
-// and shifted so its t=0 is the movie's t=0: AVFoundation starts the audio
-// track a few hundred ms after the video, and trims.json must index both.
-const extractAudio = (mov, wav) => {
+// and shifted so its t=0 is the movie's t=0 (fixAudio already aligns it; this
+// guards a movie whose audio track starts late), since trims.json indexes both.
+const audioInfo = (mov) => {
   const q = (entries, stream = []) => spawnSync('ffprobe', ['-v', 'error', ...stream, '-show_entries', entries,
     '-of', 'csv=p=0', mov]).stdout.toString().trim().split(',');
   const [rate, chans, aStart] = q('stream=sample_rate,channels,start_time', ['-select_streams', 'a:0']).map(Number);
-  const lead = aStart - (Number(q('format=start_time')[0]) || 0);
-  const pick = chans === 1 ? 'c0' : channel === 'mix' ? '0.5*c0+0.5*c1' : `c${Math.min(Number(channel), chans - 1)}`;
+  return { rate, chans, lead: aStart - (Number(q('format=start_time')[0]) || 0) };
+};
+const pickChannel = (chans) =>
+  chans === 1 ? 'c0' : channel === 'mix' ? '0.5*c0+0.5*c1' : `c${Math.min(Number(channel), chans - 1)}`;
+// camrec leaves the take's audio decoded beside it (out.wav), because ffmpeg
+// misreads AVFoundation's 24-bit PCM as static; swap it into the movie (video
+// copied as is) so every later step reads one ordinary file.
+const fixAudio = (mov, side) => {
+  const tmp = mov.replace(/\.mov$/, '.tmp.mov');
+  const ok = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', mov, '-i', side,
+    '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'pcm_s24le', '-y', tmp]).status === 0;
+  if (ok) { renameSync(tmp, mov); rmSync(side); }
+  return ok;
+};
+
+const extractAudio = (mov, wav) => {
+  const { rate, chans, lead } = audioInfo(mov);
   const shift = lead > 0 ? `,adelay=delays=${Math.round(lead * rate)}S:all=1` : '';
   return spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', mov, '-map', '0:a:0',
-    '-af', `pan=mono|c0=${pick}${shift}`, '-c:a', 'pcm_s24le', '-y', wav]).status === 0;
+    '-af', `pan=mono|c0=${pickChannel(chans)}${shift}`, '-c:a', 'pcm_s24le', '-y', wav]).status === 0;
 };
 
 const record = async (beat) => {
@@ -215,8 +230,9 @@ const record = async (beat) => {
   clearInterval(tick);
   await rec.stop();
   if (camera) {
-    if (!existsSync(mov)) return `${R}Recording failed: ${rec.err().trim() || 'no file written'}${X}`;
-    if (!extractAudio(mov, raw)) return `${R}No audio in ${mov}${X}`;
+    const side = mov.replace(/\.mov$/, '.wav');
+    if (!existsSync(mov) || !existsSync(side)) return `${R}Recording failed: ${rec.err().trim() || 'no file written'}${X}`;
+    if (!fixAudio(mov, side) || !extractAudio(mov, raw)) return `${R}Can't read the audio in ${mov}${X}`;
   }
   if (!existsSync(raw)) return `${R}Recording failed: ${rec.err().trim() || 'no file written'}${X}`;
   const bounds = speechBounds(raw);
@@ -225,6 +241,18 @@ const record = async (beat) => {
     '-t', (bounds[1] - bounds[0]).toFixed(3), '-c:a', 'pcm_s24le', '-y', join(voDir, `beat${beat.n}.wav`)]);
   saveTrim(beat.n, bounds);
   return null;
+};
+
+// With the camera on, play the trimmed take's picture and sound together (ffplay
+// window); otherwise just the audio. Any key in the teleprompter stops it.
+const hasFfplay = spawnSync('which', ['ffplay']).status === 0;
+const play = (n, take) => {
+  const mov = join(camDir, `beat${n}.mov`);
+  const trim = existsSync(trimsPath) ? JSON.parse(readFileSync(trimsPath, 'utf8'))[n] : null;
+  if (!camera || !hasFfplay || !existsSync(mov) || !trim) return spawn('afplay', [take], { stdio: 'ignore' });
+  return spawn('ffplay', ['-hide_banner', '-loglevel', 'error', '-autoexit', '-window_title', `Beat ${n}`,
+    '-ss', String(trim[0]), '-t', (trim[1] - trim[0]).toFixed(3), '-vf', 'scale=-2:540',
+    '-af', `pan=mono|c0=${pickChannel(audioInfo(mov).chans)}`, mov], { stdio: 'ignore' });
 };
 
 let player = null;
@@ -241,7 +269,7 @@ for (let i = 0; i < queue.length;) {
     stopPlay();
     note = '';
     if (k === 'r' || k === '\r') note = (await record(beat)) ?? '';
-    else if (k === 'p' && existsSync(take)) player = spawn('afplay', [take], { stdio: 'ignore' });
+    else if (k === 'p' && existsSync(take)) player = play(beat.n, take);
     else if (k === 'n') { i += 1; break; }
     else if (k === 'b') { i = Math.max(0, i - 1); break; }
     else if (k === 'q') { i = queue.length; break; }

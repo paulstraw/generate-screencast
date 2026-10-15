@@ -1,14 +1,22 @@
 // Camera + mic recorder for a human-read voiceover with a face. One capture
-// session writes both into one .mov (H.264 + Linear PCM), so picture and sound
+// session writes both into one .mov (H.264 + 24-bit PCM), so picture and sound
 // are in sync by construction.
 //
 //   camrec list                                   cameras (with formats), mics, permission status
 //   camrec snapshot <camera> <out.jpg>            one frame after exposure settles, to check framing
 //   camrec record <camera> <mic|default> <out.mov>
+//   camrec decode <in.mov> <out.wav>               a take's audio as a WAV (what record does on stop)
 //
 // record prints "rec" once frames are being written, then stops on SIGINT, a
-// "stop" line on stdin, or stdin closing; it prints "done" after the file is
-// finalized (stopRecording → delegate callback), and exits non-zero on error.
+// "stop" line on stdin, or stdin closing. Once the file is finalized
+// (stopRecording → delegate callback) it decodes the audio track to a WAV
+// beside it (out.wav), prints "done", and exits; non-zero on error.
+//
+// The WAV exists because AVFoundation stores 24-bit capture "unpacked in 4
+// bytes" under a plain lpcm tag, which ffmpeg misreads as static (asking for
+// 16- or 32-bit doesn't change the container, and float is refused). Apple's
+// reader decodes it correctly; the WAV's t=0 is the movie's t=0, with the
+// audio track's late start and any dropped buffers filled with silence.
 // Device names match exactly first, then by case-insensitive substring. The
 // format is read from the device: the smallest one at least 1080 lines tall,
 // at 30fps when it supports it. Capture cards and Continuity Camera only
@@ -117,6 +125,52 @@ func openCamera(_ session: AVCaptureSession, _ cam: AVCaptureDevice) {
   FileHandle.standardError.write("camrec: \(cam.localizedName) at \(describe(fmt))\n".data(using: .utf8)!)
 }
 
+func decodeAudio(_ mov: URL, _ wav: URL) async throws {
+  let asset = AVURLAsset(url: mov)
+  guard let track = try await asset.loadTracks(withMediaType: .audio).first else { fail("no audio track in \(mov.path)") }
+  let reader = try AVAssetReader(asset: asset)
+  let out = AVAssetReaderTrackOutput(track: track, outputSettings: [
+    AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
+    AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false,
+  ])
+  reader.add(out)
+  guard reader.startReading() else { throw reader.error ?? CocoaError(.fileReadUnknown) }
+  var file: AVAudioFile?
+  var written: AVAudioFramePosition = 0
+  while let sample = out.copyNextSampleBuffer() {
+    guard let desc = CMSampleBufferGetFormatDescription(sample),
+          var asbd = CMAudioFormatDescriptionGetStreamBasicDescription(desc)?.pointee else { continue }
+    if file == nil {
+      file = try AVAudioFile(forWriting: wav, settings: [
+        AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: asbd.mSampleRate,
+        AVNumberOfChannelsKey: asbd.mChannelsPerFrame, AVLinearPCMBitDepthKey: 24,
+        AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
+      ], commonFormat: .pcmFormatFloat32, interleaved: true)
+    }
+    guard let file, AVAudioFormat(streamDescription: &asbd) == file.processingFormat else {
+      fail("unexpected decoded audio format")
+    }
+    let fmt = file.processingFormat
+    let at = AVAudioFramePosition((CMSampleBufferGetPresentationTimeStamp(sample).seconds * fmt.sampleRate).rounded())
+    if at - written > 2 {
+      let gap = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(at - written))!
+      gap.frameLength = gap.frameCapacity
+      let b = gap.mutableAudioBufferList.pointee.mBuffers
+      memset(b.mData, 0, Int(b.mDataByteSize))
+      try file.write(from: gap)
+      written = at
+    }
+    let frames = AVAudioFrameCount(CMSampleBufferGetNumSamples(sample))
+    let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: frames)!
+    buf.frameLength = frames
+    let st = CMSampleBufferCopyPCMDataIntoAudioBufferList(sample, at: 0, frameCount: Int32(frames), into: buf.mutableAudioBufferList)
+    if st != noErr { fail("can't read audio samples (\(st))") }
+    try file.write(from: buf)
+    written += AVAudioFramePosition(frames)
+  }
+  if reader.status != .completed { throw reader.error ?? CocoaError(.fileReadUnknown) }
+}
+
 final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
   // isRecording reads false on macOS even mid-recording; trust the callback.
   var started = false
@@ -130,8 +184,12 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     // AVFoundation reports some clean stops as errors; the flag says whether the file is usable.
     let ok = error == nil || ((error as NSError?)?.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool ?? false)
     if !ok { fail("recording failed: \(error!.localizedDescription)") }
-    print("done")
-    exit(0)
+    Task {
+      do { try await decodeAudio(url, url.deletingPathExtension().appendingPathExtension("wav")) }
+      catch { fail("can't decode audio: \(error.localizedDescription)") }
+      print("done")
+      exit(0)
+    }
   }
 }
 
@@ -216,7 +274,8 @@ case "record" where args.count == 4:
     out.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.h264], for: v)
   }
   // Linear PCM, at the mic's own rate and channel count: no lossy codec, no
-  // resampling. Channel selection happens afterwards, in ffmpeg.
+  // resampling (the default is AAC). Channel selection happens afterwards, in
+  // ffmpeg, on the decoded WAV (see top).
   if let a = out.connection(with: .audio) {
     let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(mic.activeFormat.formatDescription)?.pointee
     out.setOutputSettings([
@@ -235,6 +294,10 @@ case "record" where args.count == 4:
   let recorder = Recorder()
   session.startRunning()
   out.startRecording(to: url, recordingDelegate: recorder)
+  // Unsupported output settings fail silently: no start, no error callback.
+  DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+    if !recorder.started { fail("recording didn't start within 15s") }
+  }
 
   var stopping = false
   let stop = {
@@ -254,6 +317,14 @@ case "record" where args.count == 4:
   }
   dispatchMain()
 
+case "decode" where args.count == 3:
+  Task {
+    do { try await decodeAudio(URL(fileURLWithPath: args[1]), URL(fileURLWithPath: args[2])) }
+    catch { fail("can't decode audio: \(error.localizedDescription)") }
+    exit(0)
+  }
+  dispatchMain()
+
 default:
-  fail("usage: camrec list | snapshot <camera> <out.jpg> | record <camera> <mic|default> <out.mov>")
+  fail("usage: camrec list | snapshot <camera> <out.jpg> | record <camera> <mic|default> <out.mov> | decode <in.mov> <out.wav>")
 }

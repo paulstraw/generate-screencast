@@ -74,10 +74,18 @@ cd <workdir> && node <skill>/assets/record-vo.mjs --camera "Cam Link 4K" --devic
 ```
 
 `camrec` (built on first use if it isn't in the workdir) replaces sox for these takes: one AVFoundation capture session
-writes camera and mic into `cam/raw/beatN.mov` (H.264 video, uncompressed audio). The recorder waits for the camera to
-open before the 3-2-1 countdown, so exposure has settled by the first word. It pulls the take's audio out to
+writes camera and mic into `cam/raw/beatN.mov` (H.264 video, 24-bit audio). The recorder waits for the camera to open
+before the 3-2-1 countdown, so exposure has settled by the first word. It pulls the take's audio out to
 `vo/raw/beatN.wav`, picking `--channel` there with an ffmpeg `pan`. Trimming then runs as usual, so `vo/trims.json`
-offsets index the camera footage too. `--device` names the mic as `camrec list` shows it.
+offsets index the camera footage too. `--device` names the mic as `camrec list` shows it. With the camera on, `p` plays
+the trimmed take with its picture (in an `ffplay` window, when ffplay is installed).
+
+- **ffmpeg can't read AVFoundation's raw 24-bit audio.** It stores samples "unpacked in 4 bytes" under a plain `lpcm`
+  tag, and ffmpeg decodes that as loud static with the voice faintly underneath. Asking AVFoundation for 16- or 32-bit
+  doesn't change how it stores the samples, and float stops recording from ever starting. So when a take stops,
+  `camrec` decodes the audio with Apple's own reader into a WAV aligned to the movie's t=0, and the recorder swaps it
+  into the `.mov` (the video is copied, not re-encoded). A `.mov` straight out of AVFoundation that sounds like static
+  can be repaired with `camrec decode in.mov out.wav`.
 
 Camera audio comes from Apple's capture pipeline (the one QuickTime uses), not sox, and that's not yet proven to stay
 clean on every interface, so the **listening gate matters more** here. If beat 1 crackles, fall back: record the camera
