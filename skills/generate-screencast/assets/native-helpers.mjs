@@ -351,14 +351,14 @@ export const androidText = (t) => adb('shell', 'input', 'text', t.replace(/ /g, 
 /*
  * Maps simulator taps (device points, logged with `device: [x, y]`) into the
  * 1920x1080 layout device-frame.mjs produces, ready for ripples.mjs. Pass the
- * same `height` given to device-frame (default 960).
+ * same `height` and `top` given to device-frame (default 960, centered).
  */
-export function tapsToFrame(clicks, { stoppedAt, videoDuration, devicePx, deviceScale, height = 960 }) {
+export function tapsToFrame(clicks, { stoppedAt, videoDuration, devicePx, deviceScale, height = 960, top }) {
   const [pw, ph] = devicePx;
   const k = height / ph;
   const w = Math.round((pw * k) / 2) * 2;
   const ox = (1920 - w) / 2;
-  const oy = (1080 - height) / 2;
+  const oy = top ?? (1080 - height) / 2;
   return clicks.map((c) => ({
     t: +(videoDuration - (stoppedAt - c.at) / 1000).toFixed(3),
     x: Math.round(ox + c.device[0] * deviceScale * k),

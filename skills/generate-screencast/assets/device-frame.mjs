@@ -4,7 +4,11 @@
  * dark radial backdrop as terminal.html — with rounded screen corners and a
  * soft shadow, so mobile scenes cut cleanly with browser and terminal scenes.
  *
- *   node device-frame.mjs in.mp4 out.mp4 [--height 960] [--radius 54]
+ *   node device-frame.mjs in.mp4 out.mp4 [--height 960] [--radius 54] [--top <px>]
+ *
+ * The phone is centered unless --top sets its distance from the top edge. With
+ * burned-in captions, use --height 820 --top 30: it leaves a caption band
+ * below the phone, clear of its frame and home bar.
  *
  * For an all-mobile video in portrait, skip this and scale to 1080x1920.
  * Backdrop, shadow and corner mask are rendered once as stills; geq per video
@@ -23,11 +27,12 @@ const opt = (name, d) => {
   return i >= 0 ? Number(args[i + 1]) : d;
 };
 if (!output) {
-  console.error('usage: node device-frame.mjs in.mp4 out.mp4 [--height 960] [--radius 54]');
+  console.error('usage: node device-frame.mjs in.mp4 out.mp4 [--height 960] [--radius 54] [--top <px>]');
   process.exit(1);
 }
 const H = opt('height', 960);
 const R = opt('radius', 54);
+const TOP = opt('top', (1080 - H) / 2);
 const PAD = 40;
 
 const [srcW, srcH] = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries',
@@ -57,8 +62,8 @@ still(`${W}x${H}`, 'gray', `lum='255*clip(${R}+0.5-${outside(W, H, R, 0)},0,1)'`
 const filter = [
   `[0:v]fps=30,scale=${W}:${H}:flags=lanczos,format=rgba[v0]`,
   `[v0][3:v]alphamerge[dev]`,
-  `[1:v][2:v]overlay=(W-w)/2:(H-h)/2+14[b2]`,
-  `[b2][dev]overlay=(W-w)/2:(H-h)/2:shortest=1,format=yuv420p[v]`,
+  `[1:v][2:v]overlay=(W-w)/2:${TOP - PAD + 14}[b2]`,
+  `[b2][dev]overlay=(W-w)/2:${TOP}:shortest=1,format=yuv420p[v]`,
 ].join(';');
 const loop = (f) => ['-loop', '1', '-framerate', '30', '-t', dur, '-i', f];
 ff('-i', input, ...loop(bg), ...loop(shadow), ...loop(mask),

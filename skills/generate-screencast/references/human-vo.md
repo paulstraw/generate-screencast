@@ -52,11 +52,20 @@ People riff, and the truth rule applies to the take, not the script. Transcribe 
 
 ```bash
 uvx --from mlx-whisper mlx_whisper --model mlx-community/whisper-large-v3-turbo --language en \
-  --word-timestamps True --output-format json --output-dir vo/txt --output-name beatN vo/beatN.wav
+  --word-timestamps True --output-format json --output-dir vo/txt --output-name beatN \
+  --initial-prompt "<beat N of the approved script>" vo/beatN.wav
 ```
+
+The prompt steers spelling and punctuation, not words. Without it, the turbo model sometimes returns a take
+unpunctuated and lowercase, and it spells product names however it likes. With it, a riff is still transcribed as it
+was said.
 
 Word timestamps are relative to the trimmed clip, so they become choreography marks directly: scene time = 500ms + word
 time.
+
+These words are also the captions. They show what was actually said, which is what the truth rule requires, split at
+sentence ends and pauses. If whisper still misspells a term, fix it with `"spellings"` in the assembly manifest
+(`{ "lock file": "lockfile" }`). Don't hand-edit the transcript: its times are the cue times.
 
 Check every deviation from the script against its planned footage. A riff that names something new gets footage that
 shows it (a cut to the pane it mentions); a line that's factually loose goes back to the user — re-record or accept —
@@ -66,6 +75,7 @@ Done when every beat's transcript matches what its scene will show, and every lo
 
 ## Deliverables
 
-Assemble with `"normalize": true` and finish with the user's listen of the final file (both in §6). Beside the video,
+Assemble with `"normalize": true` and no `"text"` on the scenes, so captions come from `vo/txt/beatN.json`. Finish with
+the user's listen of the final file (both in §6). Beside the video,
 the `.script.md` holds the approved script followed by an `## As recorded` section with each beat's transcript, ready for
-captions or a post.
+a post.

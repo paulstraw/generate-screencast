@@ -22,6 +22,16 @@ _The demo above was made with this skill (23s, [MP4](media/demo.mp4))._
 
 Mobile scenes are framed on a 16:9 stage so they cut together with desktop scenes, or the whole video can be portrait.
 
+## Captions
+
+Every video ships with captions: an `.srt` file beside the MP4, and a subtitle track inside it that QuickTime, VLC and
+most players can switch on. Captions show the script's real spelling, even where the narration needed phonetic help
+("pnpm", not "P N P M"), and for your own narration they follow what you actually said, word by word.
+
+For Slack, LinkedIn and other feeds that autoplay muted, ask for **burned-in** captions as well. They're rendered with
+Chromium and laid over the picture with ffmpeg's core `overlay` filter, so they work on any ffmpeg build, including
+Homebrew's default one without libass.
+
 ## Install
 
 With the [skills CLI](https://skills.sh):
@@ -46,7 +56,9 @@ Then ask your agent for a video: _"make a 45-second walkthrough of the signup fl
   anything.
 - `ffmpeg`, Node.js, and [`uv`](https://docs.astral.sh/uv/) (the narration runs `uvx edge-tts`). The agent checks for
   these and offers to install whatever is missing.
-- Playwright installs into a temporary working directory, never into your project.
+- Playwright installs into a temporary working directory, never into your project. Burned-in captions need it too, so
+  a video made only of native scenes (macOS, iOS, Android) downloads Chromium (about 150MB, into the working directory
+  and Playwright's cache) when you ask for them.
 - **macOS apps and iOS:** macOS, Xcode Command Line Tools (to compile the input driver), and Screen Recording and
   Accessibility permission for the terminal or editor running your agent. iOS also needs Xcode and a simulator.
 - **Android:** the Android SDK (`adb`, `emulator`) and an emulator.
@@ -80,7 +92,8 @@ is not yet tested.
 4. **QA** — the agent extracts frames across every scene and looks at them, then re-shoots anything that's wrong or
    shows something private.
 5. **Assemble** — [`assemble.mjs`](skills/generate-screencast/assets/assemble.mjs) trims, concatenates and places each voiceover clip based on the measured clip
-   durations, so timing errors don't accumulate.
+   durations, so timing errors don't accumulate. Captions are shifted by the same offsets, so they can't drift from the
+   voice.
 
 See [`SKILL.md`](skills/generate-screencast/SKILL.md) for the full procedure and
 [`references/`](skills/generate-screencast/references) for the per-surface recipes.
