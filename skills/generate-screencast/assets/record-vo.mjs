@@ -1,17 +1,30 @@
 #!/usr/bin/env node
 /*
- * Teleprompter + per-beat mic recorder for a human-read voiceover (needs sox).
- * Run from the workdir; reads the one *.script.md there and writes vo/.
+ * Teleprompter + per-beat mic recorder for a human-read voiceover (needs sox,
+ * or camrec with --camera). Run from the workdir; reads the one *.script.md
+ * there and writes vo/ (and cam/).
  *
  *   node record-vo.mjs [beat numbers…] [--script x.script.md] [--device "Scarlett Solo USB"] [--channel 0|1|mix]
+ *                      [--camera "Cam Link 4K"] [--cam-delay 0.15]
  *
  * --device defaults to the system default input; --channel picks an input of a
  * multi-input interface (0 = first). Raw takes go to vo/raw/beatN.wav (the
  * previous take kept as beatN.prev.wav), silence-trimmed copies to vo/beatN.wav.
+ * vo/trims.json maps each beat to the [start, end] seconds of the raw take that
+ * vo/beatN.wav covers.
+ *
+ * --camera records each take with camrec (camera + mic in one .mov, built from
+ * camrec.swift beside this script on first use) instead of sox: the raw take is
+ * cam/raw/beatN.mov, and vo/raw/beatN.wav is its audio, so trims.json offsets
+ * index the camera footage too. --cam-delay (seconds the picture lags the
+ * sound, from a clap test) only lines up the p preview; assembly takes the same
+ * value as the manifest's camDelay.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 const here = process.cwd();
 const args = process.argv.slice(2);
@@ -23,6 +36,8 @@ const opt = (name, fallback) => {
 };
 const device = opt('--device', 'default');
 const channel = opt('--channel', '0');
+const camera = opt('--camera', null);
+const camDelay = Number(opt('--cam-delay', '0'));
 const scriptPath = opt('--script', readdirSync(here).find((f) => f.endsWith('.script.md')));
 if (!scriptPath) {
   console.error('no *.script.md in the current directory; pass --script');
@@ -32,7 +47,20 @@ const only = args.map(Number).filter(Boolean);
 
 const rawDir = join(here, 'vo', 'raw');
 const voDir = join(here, 'vo');
+const camDir = join(here, 'cam', 'raw');
+const trimsPath = join(voDir, 'trims.json');
 mkdirSync(rawDir, { recursive: true });
+
+const camrec = join(here, 'camrec');
+if (camera) {
+  mkdirSync(camDir, { recursive: true });
+  if (!existsSync(camrec)) {
+    const src = join(dirname(fileURLToPath(import.meta.url)), 'camrec.swift');
+    console.log('building camrec…');
+    const b = spawnSync('swiftc', ['-O', src, '-o', camrec], { stdio: 'inherit' });
+    if (b.status !== 0) process.exit(1);
+  }
+}
 
 const beats = [];
 for (const block of readFileSync(scriptPath, 'utf8').split(/^## /m).slice(1)) {
@@ -98,16 +126,108 @@ const key = () => new Promise((res) => process.stdin.once('data', (k) => {
 }));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const record = async (beat) => {
-  const raw = join(rawDir, `beat${beat.n}.wav`);
-  if (existsSync(raw)) renameSync(raw, join(rawDir, `beat${beat.n}.prev.wav`));
-  // sox, not ffmpeg: ffmpeg's avfoundation audio input drops buffers (crackle/stutter).
+// Speech bounds in a raw take, padded 150ms either side, so scene timing starts
+// on the first word. silencedetect (unlike silenceremove) reports where it would
+// cut, so the same offsets can trim the camera footage.
+const speechBounds = (file) => {
+  const total = probe(file).dur;
+  const log = spawnSync('ffmpeg', ['-hide_banner', '-i', file, '-af', 'silencedetect=noise=-45dB:d=0.15', '-f', 'null', '-'],
+    { encoding: 'utf8' }).stderr;
+  const rawStarts = [...log.matchAll(/silence_start: (-?[\d.]+)/g)].map((x) => Math.max(0, Number(x[1])));
+  const rawEnds = [...log.matchAll(/silence_end: ([\d.]+)/g)].map((x) => Number(x[1]));
+  // Merge silences split by under 50ms of sound: mic clicks (~1ms) aren't
+  // speech, and would otherwise pull the trim a second early.
+  const starts = [], ends = [];
+  rawStarts.forEach((st, i) => {
+    if (starts.length && ends.length === starts.length && st - ends.at(-1) < 0.05) ends.pop();
+    else starts.push(st);
+    if (rawEnds[i] !== undefined) ends.push(rawEnds[i]);
+  });
+  let from = 0, to = total;
+  if (starts.length && starts[0] < 0.01) from = ends[0] ?? total;     // leading silence
+  const last = starts.at(-1);
+  if (last !== undefined && last > from && (ends.length < starts.length || ends.at(-1) > total - 0.01)) to = last;
+  if (to <= from) return null;
+  const r = (x) => +x.toFixed(3);
+  return [r(Math.max(0, from - 0.15)), r(Math.min(total, to + 0.15))];
+};
+
+const saveTrim = (n, bounds) => {
+  const trims = existsSync(trimsPath) ? JSON.parse(readFileSync(trimsPath, 'utf8')) : {};
+  trims[n] = bounds;
+  writeFileSync(trimsPath, JSON.stringify(trims, null, 2) + '\n');
+};
+
+const keepPrev = (dir, n, ext) => {
+  const f = join(dir, `beat${n}.${ext}`);
+  if (existsSync(f)) renameSync(f, join(dir, `beat${n}.prev.${ext}`));
+  return f;
+};
+
+// sox, not ffmpeg: ffmpeg's avfoundation audio input drops buffers (crackle/stutter).
+// Resolves once the device is open; stop() resolves when the WAV is finalized.
+const startSox = async (raw) => {
   const remix = channel === 'mix' ? ['remix', '1,2'] : ['remix', String(Number(channel) + 1)];
-  const ff = spawn('sox', ['-q', '-t', 'coreaudio', device, '-r', '48000', '-b', '24', raw, ...remix],
+  const p = spawn('sox', ['-q', '-t', 'coreaudio', device, '-r', '48000', '-b', '24', raw, ...remix],
     { stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';
-  ff.stderr.on('data', (d) => { err += d; });
-  // Count down while sox opens the device (~0.6s), so the first word is never lost.
+  p.stderr.on('data', (d) => { err += d; });
+  const exited = new Promise((r) => p.on('close', r));
+  return { exited, err: () => err, stop: () => { p.kill('SIGINT'); return exited; } };
+};
+
+// camrec prints "rec" once frames are being written; "stop" on stdin finalizes the .mov.
+const startCam = async (mov) => {
+  const p = spawn(camrec, ['record', camera, device, mov], { stdio: ['pipe', 'pipe', 'pipe'] });
+  let err = '';
+  p.stderr.on('data', (d) => { err += d; });
+  p.stdin.on('error', () => {}); // camrec already gone: its stderr says why
+  const exited = new Promise((r) => p.on('close', r));
+  const started = new Promise((r) => createInterface({ input: p.stdout }).on('line', (l) => l === 'rec' && r(true)));
+  const ok = await Promise.race([started, exited.then(() => false)]);
+  return { ok, exited, err: () => err, stop: () => { p.stdin.end('stop\n'); return exited; } };
+};
+
+// The camera's audio, cut down to the chosen input of a multi-input interface
+// and shifted so its t=0 is the movie's t=0 (fixAudio already aligns it; this
+// guards a movie whose audio track starts late), since trims.json indexes both.
+const audioInfo = (mov) => {
+  const q = (entries, stream = []) => spawnSync('ffprobe', ['-v', 'error', ...stream, '-show_entries', entries,
+    '-of', 'csv=p=0', mov]).stdout.toString().trim().split(',');
+  const [rate, chans, aStart] = q('stream=sample_rate,channels,start_time', ['-select_streams', 'a:0']).map(Number);
+  return { rate, chans, lead: aStart - (Number(q('format=start_time')[0]) || 0) };
+};
+const pickChannel = (chans) =>
+  chans === 1 ? 'c0' : channel === 'mix' ? '0.5*c0+0.5*c1' : `c${Math.min(Number(channel), chans - 1)}`;
+// camrec leaves the take's audio decoded beside it (out.wav), because ffmpeg
+// misreads AVFoundation's 24-bit PCM as static; swap it into the movie (video
+// copied as is) so every later step reads one ordinary file.
+const fixAudio = (mov, side) => {
+  const tmp = mov.replace(/\.mov$/, '.tmp.mov');
+  const ok = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', mov, '-i', side,
+    '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'pcm_s24le', '-y', tmp]).status === 0;
+  if (ok) { renameSync(tmp, mov); rmSync(side); }
+  return ok;
+};
+
+const extractAudio = (mov, wav) => {
+  const { rate, chans, lead } = audioInfo(mov);
+  const shift = lead > 0 ? `,adelay=delays=${Math.round(lead * rate)}S:all=1` : '';
+  return spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', mov, '-map', '0:a:0',
+    '-af', `pan=mono|c0=${pickChannel(chans)}${shift}`, '-c:a', 'pcm_s24le', '-y', wav]).status === 0;
+};
+
+const record = async (beat) => {
+  const raw = keepPrev(rawDir, beat.n, 'wav');
+  const mov = camera ? keepPrev(camDir, beat.n, 'mov') : null;
+  if (camera) screen(beat, `${D}  opening camera…${X}`);
+  const rec = camera ? await startCam(mov) : await startSox(raw);
+  if (camera && !rec.ok) {
+    await rec.exited;
+    return `${R}Camera failed: ${rec.err().trim() || 'camrec exited'}${X}`;
+  }
+  // Count down while capture warms up (sox ~0.6s to open; a camera's exposure
+  // and white balance settle for a moment after it opens), so the first word is never lost.
   for (const c of ['3', '2', '1']) {
     screen(beat, `${Y}${B}  ${c}…${X}`);
     await sleep(700);
@@ -117,17 +237,34 @@ const record = async (beat) => {
     const t = ((Date.now() - started) / 1000).toFixed(1);
     screen(beat, `${R}${B}  ● REC ${t}s${X}   ${D}any key to stop${X}`);
   }, 200);
-  const exited = new Promise((r) => ff.on('close', r));
-  await Promise.race([key(), exited]);
+  await Promise.race([key(), rec.exited]);
   clearInterval(tick);
-  ff.kill('SIGINT');
-  await exited;
-  if (!existsSync(raw)) return `${R}Recording failed: ${err.trim() || 'no file written'}${X}`;
-  // Trim to 150ms either side of the speech so scene timing starts on the first word.
-  const trim = 'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.15';
-  spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', raw,
-    '-af', `${trim},areverse,${trim},areverse`, '-y', join(voDir, `beat${beat.n}.wav`)]);
+  await rec.stop();
+  if (camera) {
+    const side = mov.replace(/\.mov$/, '.wav');
+    if (!existsSync(mov) || !existsSync(side)) return `${R}Recording failed: ${rec.err().trim() || 'no file written'}${X}`;
+    if (!fixAudio(mov, side) || !extractAudio(mov, raw)) return `${R}Can't read the audio in ${mov}${X}`;
+  }
+  if (!existsSync(raw)) return `${R}Recording failed: ${rec.err().trim() || 'no file written'}${X}`;
+  const bounds = speechBounds(raw);
+  if (!bounds) return `${R}No speech detected in the take${X}`;
+  spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', raw, '-ss', String(bounds[0]),
+    '-t', (bounds[1] - bounds[0]).toFixed(3), '-c:a', 'pcm_s24le', '-y', join(voDir, `beat${beat.n}.wav`)]);
+  saveTrim(beat.n, bounds);
   return null;
+};
+
+// With the camera on, play the trimmed take's picture and sound together (ffplay
+// window); otherwise just the audio. Any key in the teleprompter stops it.
+const hasFfplay = spawnSync('which', ['ffplay']).status === 0;
+const play = (n, take) => {
+  const mov = join(camDir, `beat${n}.mov`);
+  const trim = existsSync(trimsPath) ? JSON.parse(readFileSync(trimsPath, 'utf8'))[n] : null;
+  if (!camera || !hasFfplay || !existsSync(mov) || !trim) return spawn('afplay', [take], { stdio: 'ignore' });
+  return spawn('ffplay', ['-hide_banner', '-loglevel', 'error', '-autoexit', '-window_title', `Beat ${n}`,
+    '-ss', String(trim[0]), '-t', (trim[1] - trim[0]).toFixed(3), '-vf', 'scale=-2:540',
+    '-af', `pan=mono|c0=${pickChannel(audioInfo(mov).chans)},adelay=${Math.round(camDelay * 1000)}`, mov],
+    { stdio: 'ignore' });
 };
 
 let player = null;
@@ -144,7 +281,7 @@ for (let i = 0; i < queue.length;) {
     stopPlay();
     note = '';
     if (k === 'r' || k === '\r') note = (await record(beat)) ?? '';
-    else if (k === 'p' && existsSync(take)) player = spawn('afplay', [take], { stdio: 'ignore' });
+    else if (k === 'p' && existsSync(take)) player = play(beat.n, take);
     else if (k === 'n') { i += 1; break; }
     else if (k === 'b') { i = Math.max(0, i - 1); break; }
     else if (k === 'q') { i = queue.length; break; }

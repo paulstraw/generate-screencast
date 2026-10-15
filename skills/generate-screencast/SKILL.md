@@ -30,7 +30,9 @@ Interview the user, or confirm what's already specified. Nothing is produced unt
   social feeds).
 - **Voice** — default `en-US-AndrewNeural`. Offer another voice or locale when the audience calls for it
   (`uvx edge-tts --list-voices`). When the user narrates in their own voice, load
-  [references/human-vo.md](references/human-vo.md): it replaces §3.
+  [references/human-vo.md](references/human-vo.md): it replaces §3. Then ask whether they want their camera in the
+  video, and mark each beat `pip` (a face bubble over the screen), `full` (camera only) or `off`. Only beats that aren't
+  narrating the UI can be `full`.
 - **Aspect** — 1920×1080. When every beat is mobile, ask: 16:9 with the phone framed on a stage, or portrait 1080×1920.
 
 The **truth rule** outranks any draft: the voiceover never claims something the screen doesn't show at that moment.
@@ -54,6 +56,7 @@ Detect everything the beats need and offer **one** `brew install …` (or equiva
 | iOS beats               | `xcrun simctl`, a booted simulator                                                  |
 | Android beats           | `adb`, a running emulator                                                           |
 | human-read voiceover    | `sox`; Apple Silicon for `mlx-whisper` (via `uvx`)                                  |
+| camera (human VO only)  | `swiftc`; Camera permission, device and framing via `camrec` ([references/human-vo.md](references/human-vo.md#camera)) |
 
 Playwright always installs into the workdir, never the project, so the project's lockfile is never touched:
 
@@ -124,6 +127,10 @@ Check, at each VO moment:
 - the cursor or touch indicator is visible where action happens; mode or state flips happened;
 - nothing private or stray is in frame — notifications, other apps, personal tabs, names, tokens, the menu-bar clock.
 
+With the camera on, also check that the bubble never covers the thing being narrated, that camera frames pass the same
+privacy check for the room (what's behind the user, other people, other screens), and spot-check lip sync on at least
+one beat ([references/human-vo.md](references/human-vo.md#camera)).
+
 With burn-in, captions only exist after assembly, so check them then, with them visible: run `qa-grid.sh` on
 `assembly/clipN.mp4` instead of the raw recording (the same scene times map 1:1). At each VO moment, check that:
 
@@ -151,7 +158,8 @@ It trims each recording to its **last** 0.5 + VO + 0.5s (1.0s tail on the final 
 so ±0.3s drift is invisible — concatenates, places each VO at its clip's actual start + 0.5s, muxes with faststart, and
 prints per-scene timings plus loudness (healthy: mean −18…−26 dB, max < −1 dB). It fails loudly if a recording is shorter
 than its scene. Add `"size": [1080, 1920]` for portrait, and `"normalize": true` for a human-read voiceover (two-pass
-loudnorm on each clip before the mix, so the finished track needs no dynamic processing).
+loudnorm on each clip before the mix, so the finished track needs no dynamic processing). Camera beats add `cam`,
+`camTrim` and `camMode` per scene (see [references/human-vo.md](references/human-vo.md#camera)).
 
 Captions come out of the same run: `<out>.srt` beside the video and a `mov_text` track in it, with video and audio
 still stream-copied. Each beat's cues are shifted by its VO offset and start on the voice's measured onset. Each cue has
