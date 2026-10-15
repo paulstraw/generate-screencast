@@ -48,7 +48,8 @@ so trim-from-the-end stays aligned.
 
 ## Framing and ripples
 
-16:9 (default for mixed videos): frame first, then ripple in framed coordinates.
+16:9 (default for mixed videos): frame first, then ripple in framed coordinates. With burned-in captions, frame with
+`--height 820 --top 30` and pass `height: 820, top: 30` to `tapsToFrame`, so the captions get a band below the phone.
 
 ```js
 // node device-frame.mjs scenes/s2.mp4 scenes/s2.framed.mp4

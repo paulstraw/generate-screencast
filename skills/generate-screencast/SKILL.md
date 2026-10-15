@@ -25,6 +25,9 @@ Interview the user, or confirm what's already specified. Nothing is produced unt
   **surface**: browser, Storybook, terminal, macOS app, iOS Simulator, Android emulator.
 - **Deliverable** — default `~/Downloads/<slug>-<YYYY-MM-DD>.mp4`, plus the approved script beside it as
   `<slug>-<YYYY-MM-DD>.script.md`. Offer a repo path (e.g. `docs/<slug>.mp4`) when the video belongs to the project.
+- **Captions** — always made: `<slug>-<YYYY-MM-DD>.srt` beside the video and a subtitle track inside it that viewers can
+  switch on. Ask whether to also **burn them in**. That's worth it wherever video autoplays muted (Slack, LinkedIn,
+  social feeds).
 - **Voice** — default `en-US-AndrewNeural`. Offer another voice or locale when the audience calls for it
   (`uvx edge-tts --list-voices`). When the user narrates in their own voice, load
   [references/human-vo.md](references/human-vo.md): it replaces §3. Then ask whether they want their camera in the
@@ -48,7 +51,7 @@ Detect everything the beats need and offer **one** `brew install …` (or equiva
 | Need                    | Check                                                                               |
 | ----------------------- | ----------------------------------------------------------------------------------- |
 | every video             | `ffmpeg`, `ffprobe`, `uvx` (for `edge-tts`), `node`                                 |
-| browser/terminal beats  | Playwright in the workdir (below)                                                   |
+| browser/terminal beats, burned-in captions | Playwright in the workdir (below)                                |
 | macOS / iOS beats       | `swiftc` (builds `mousectl`); the permission probe in [references/macos.md](references/macos.md) |
 | iOS beats               | `xcrun simctl`, a booted simulator                                                  |
 | Android beats           | `adb`, a running emulator                                                           |
@@ -60,6 +63,9 @@ Playwright always installs into the workdir, never the project, so the project's
 ```bash
 cd <workdir> && npm init -y >/dev/null && npm i playwright && npx playwright install chromium
 ```
+
+Burn-in renders its captions with that Chromium, so an all-native video (macOS, iOS, Android) needs it too when the user
+wants captions burned in: about 150MB, kept in the workdir and Playwright's cache, nothing installed system-wide.
 
 Then load the reference for every surface the script uses — each holds the recipe and the hard-won gotchas:
 
@@ -77,12 +83,19 @@ Done when every tool is present, every needed permission is granted, and every s
 
 For a human-read voiceover, follow [references/human-vo.md](references/human-vo.md) instead.
 
-- One clip per beat: `uvx edge-tts --voice <voice> --text "…" --write-media vo/beatN.mp3`. It's a free online service
-  that occasionally hangs: wrap each call in a timeout and retry (`perl -e 'alarm 30; exec @ARGV' uvx edge-tts …`).
-- Spell awkward tokens phonetically for TTS input only ("pnpm" → "P N P M"); the saved script keeps the real spelling.
+- One clip per beat:
+  `uvx edge-tts --voice <voice> --text "…" --write-media vo/beatN.mp3 --write-subtitles vo/beatN.srt`. It's a free
+  online service that occasionally hangs: wrap each call in a timeout and retry
+  (`perl -e 'alarm 30; exec @ARGV' uvx edge-tts …`).
+- Spell awkward tokens phonetically for TTS input only ("pnpm" → "P N P M"); the saved script keeps the real spelling,
+  and so do the captions.
 - `ffprobe` each clip. Scene length = 0.5s lead + VO + 0.5s tail (1.0s tail on the final scene).
-- When a cut or action must land on a spoken word, `--write-subtitles` yields sentence-level cues; interpolate within a
-  sentence by word count. Word-level events are unreliable in the CLI.
+- `vo/beatN.srt` holds one cue per sentence. Assembly takes only its **timing**: each caption's text comes from the
+  matching sentence of the approved script, so phonetic input never reaches the screen. The two must have the same
+  sentence count, or assembly stops and names the beat. Don't let a phonetic spelling add or remove a sentence end
+  ("P.N.P.M." would).
+- When a cut or action must land on a spoken word, interpolate within a sentence of `vo/beatN.srt` by word count.
+  Word-level events are unreliable in the CLI.
 
 Done when every beat has a clip and a computed scene length.
 
@@ -118,15 +131,27 @@ With the camera on, also check that the bubble never covers the thing being narr
 privacy check for the room (what's behind the user, other people, other screens), and spot-check lip sync on at least
 one beat ([references/human-vo.md](references/human-vo.md#camera)).
 
+With burn-in, captions only exist after assembly, so check them then, with them visible: run `qa-grid.sh` on
+`assembly/clipN.mp4` instead of the raw recording (the same scene times map 1:1). At each VO moment, check that:
+
+- no caption covers the thing being narrated (truth rule). Move that scene's captions with `"captionPosition": "top"`,
+  or re-frame;
+- no cue is too brief to read. Assembly prints any cue under ~1s or over ~20 characters a second as `tooFast`; tighten
+  that beat's script or let it breathe.
+
 Re-shoot failing scenes. Done when every frame you checked passes.
 
 ## 6. Assemble
 
-Post-process first where a surface needs it (`device-frame.mjs` for framed mobile, `ripples.mjs` for macOS/iOS clicks —
-see their references), then write a manifest and run `<skill>/assets/assemble.mjs`:
+Post-process first where a surface needs it (`device-frame.mjs` for framed mobile, with `--height 820 --top 30` when
+burning in captions; `ripples.mjs` for macOS/iOS clicks — see their references), then write a manifest and run `<skill>/assets/assemble.mjs`:
 
 ```json
-{ "out": "~/Downloads/<slug>-<date>.mp4 (absolute)", "scenes": [{ "video": "scenes/s1.webm", "vo": "vo/beat1.mp3" }] }
+{
+  "out": "~/Downloads/<slug>-<date>.mp4 (absolute)",
+  "voice": "en-US-AndrewNeural",
+  "scenes": [{ "video": "scenes/s1.webm", "vo": "vo/beat1.mp3", "text": "Beat 1 of the approved script, verbatim." }]
+}
 ```
 
 It trims each recording to its **last** 0.5 + VO + 0.5s (1.0s tail on the final scene) — the 0.5s lead is a static hold,
@@ -136,7 +161,21 @@ than its scene. Add `"size": [1080, 1920]` for portrait, and `"normalize": true`
 loudnorm on each clip before the mix, so the finished track needs no dynamic processing). Camera beats add `cam`,
 `camTrim` and `camMode` per scene (see [references/human-vo.md](references/human-vo.md#camera)).
 
-Write the `.script.md` beside the video, then spot-check frames at beat boundaries in the final file. For a human-read
+Captions come out of the same run: `<out>.srt` beside the video and a `mov_text` track in it, with video and audio
+still stream-copied. Each beat's cues are shifted by its VO offset and start on the voice's measured onset. Each cue has
+at most 2 lines of 42 characters.
+
+- **Caption source per scene.** For TTS, set `"text"` to the beat's approved script. The timing is read from
+  `vo/beatN.srt` (or `"subs"`). For a human-read voiceover, leave `"text"` out: cues come from the whisper words in
+  `vo/txt/beatN.json` (or `"subs"`), and `"spellings": { "lock file": "lockfile" }` fixes any term whisper got wrong.
+- **Language tag.** It's taken from whisper's detected language, then `"voice"`'s locale, then `eng`. Set `"lang"` to
+  override it.
+- **Burn-in.** Add `"captions": "burn"` to draw them into the picture too. The overlay happens inside the per-clip
+  encode, with no extra pass, and it uses no libass, so any ffmpeg works. Captions sit bottom-center: above the tab
+  and home bars in portrait, and in the band `device-frame.mjs --height 820 --top 30` leaves below a framed phone.
+  Set `"captionPosition": "top"` on a scene whose narrated thing sits at the bottom, such as a terminal prompt.
+
+Write the `.script.md` beside the video (the `.srt` is already there), then spot-check frames at beat boundaries in the final file. For a human-read
 voiceover, the user also listens to the final file once and confirms it sounds clean: frames check the picture, and only
 a human ear checks the audio.
 

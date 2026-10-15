@@ -25,3 +25,6 @@ await page.evaluate((a) => window.__run(a), {
 `lines` are `[msAfterEnter, html]`. The command types at 42ms/char starting at 350ms, so Enter lands at
 `350 + cmd.length*42 + 260` ms — schedule the clock (and any VO sync) from there. Classes: `p` (prompt), `cmd`, `dim`,
 `ok`, `strong`, `url`, `badge-run`/`badge-dark`/`badge-light`/`badge-unit` (pill labels). Escape `<`/`>` in output text.
+
+With burned-in captions, a long run of output reaches the window's bottom edge, where the captions sit. Give those
+scenes `"captionPosition": "top"`; at the top, captions overlap only the title bar.
