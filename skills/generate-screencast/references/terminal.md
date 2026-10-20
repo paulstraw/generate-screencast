@@ -7,10 +7,15 @@ and noise can be curated out.
    `script -q out.raw <cmd …>`, then strip ANSI (`sed -E 's/\x1b\[[0-9;?]*[A-Za-z]//g'`) and carriage-return rewrites.
 2. Curate: keep the honest lines, drop noise (package-manager warnings, install spew, absolute home paths). Never invent,
    reorder into a false story, or edit numbers.
-3. Copy `<skill>/assets/terminal.html` into the workdir, open it with `page.goto('file://<workdir>/terminal.html')`, and drive it:
+3. In a `p.browserScene` (see [web.md](web.md)), open the stage straight from the skill with
+   `page.goto('file://<skill>/assets/terminal.html')` (nothing is copied into the project), and drive it:
 
 ```js
+const clock = await b.ready();
+const cmd = 'npm test';
+await clock.until(b.at('test') - (350 + cmd.length * 42 + 260)); // Enter lands on the word
 await page.evaluate((a) => window.__run(a), {
+  cmd,
   cmd: 'npm test',
   prompt: 'my-app',          // shown after the arrow; use the project folder name
   title: 'my-app — zsh',     // window title bar
@@ -23,8 +28,10 @@ await page.evaluate((a) => window.__run(a), {
 ```
 
 `lines` are `[msAfterEnter, html]`. The command types at 42ms/char starting at 350ms, so Enter lands at
-`350 + cmd.length*42 + 260` ms — schedule the clock (and any VO sync) from there. Classes: `p` (prompt), `cmd`, `dim`,
-`ok`, `strong`, `url`, `badge-run`/`badge-dark`/`badge-light`/`badge-unit` (pill labels). Escape `<`/`>` in output text.
+`350 + cmd.length*42 + 260` ms after `__run` — schedule it from the VO marks as above. Set the title before `b.ready()`
+(`document.getElementById('title').textContent = …`) so the head handle shows the right window. Classes: `p` (prompt),
+`cmd`, `dim`, `ok`, `strong`, `url`, `badge-run`/`badge-dark`/`badge-light`/`badge-unit` (pill labels). Escape `<`/`>`
+in output text.
 
 With burned-in captions, a long run of output reaches the window's bottom edge, where the captions sit. Give those
-scenes `"captionPosition": "top"`; at the top, captions overlap only the title bar.
+beats `"captionPosition": "top"`; at the top, captions overlap only the title bar.

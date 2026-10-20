@@ -56,9 +56,9 @@ Then ask your agent for a video: _"make a 45-second walkthrough of the signup fl
   anything.
 - `ffmpeg`, Node.js, and [`uv`](https://docs.astral.sh/uv/) (the narration runs `uvx edge-tts`). The agent checks for
   these and offers to install whatever is missing.
-- Playwright installs into a temporary working directory, never into your project. Burned-in captions need it too, so
-  a video made only of native scenes (macOS, iOS, Android) downloads Chromium (about 150MB, into the working directory
-  and Playwright's cache) when you ask for them.
+- Playwright and Chromium install once per machine into `~/.cache/generate-screencast/` (about 150MB with Playwright's
+  browser cache), never into your project, so no lockfile is touched. Burned-in captions need them too, so a video made
+  only of native scenes (macOS, iOS, Android) installs them when you ask for burn-in.
 - **macOS apps and iOS:** macOS, Xcode Command Line Tools (to compile the input driver), and Screen Recording and
   Accessibility permission for the terminal or editor running your agent. iOS also needs Xcode and a simulator.
 - **Android:** the Android SDK (`adb`, `emulator`) and an emulator.
@@ -87,15 +87,48 @@ is not yet tested.
 
 ## How it works
 
-1. **Shape** — the agent interviews you about subject, audience, beats and where the video goes (default
-   `~/Downloads/<slug>-<date>.mp4`). It produces nothing until you approve the script word for word.
+1. **Shape** — the agent interviews you about subject, audience, beats and where the project goes. It produces nothing
+   until you approve the script word for word.
 2. **Voiceover** — one clip per beat, from TTS or read by you. Each clip's measured length sets its scene's length.
 3. **Film** — each scene is recorded on a clock, so actions land on the spoken words.
 4. **QA** — the agent extracts frames across every scene and looks at them, then re-shoots anything that's wrong or
-   shows something private.
-5. **Assemble** — [`assemble.mjs`](skills/generate-screencast/assets/assemble.mjs) trims, concatenates and places each voiceover clip based on the measured clip
-   durations, so timing errors don't accumulate. Captions are shifted by the same offsets, so they can't drift from the
-   voice.
+   shows something private. Each pass is recorded, so a later change to a beat sends it back through QA.
+5. **Assemble** — [`assemble.mjs`](skills/generate-screencast/assets/assemble.mjs) renders the edit: each voiceover
+   clip at a fixed offset computed from the measured durations, so timing errors don't accumulate, and each picture cut
+   from its recording to match. Captions are placed by the same offsets, so they can't drift from the voice.
+
+### A project per video
+
+Each video is a folder (by default `~/Downloads/<slug>/`, or anywhere you name, including inside a repo) holding
+everything about it: `screencast.json`, the single source of truth for every beat (script, voice, surface, camera,
+captions, edit), `build.json` with what was built from what, the agent's `film.mjs` choreography, the voiceover, the
+recordings, and the deliverables `<slug>.mp4`, `.srt` and `.script.md`. Beats have stable ids, so files are named after
+them and reordering is just reordering the list. `status.mjs` compares the two JSON files and says, beat by beat, what
+needs rebuilding and why ("text changed since the VO"), whoever made the change.
+
+### Cuts and handles
+
+By default each beat's picture changes exactly where its narration block starts. A beat can set a `cut` to move that
+boundary while the audio stays put: an **L cut** brings the next screen in while the previous sentence finishes, a
+**J cut** starts the next sentence over the previous screen. Every recording keeps a 1.5s **handle** of footage before
+and after its scene, so cuts and the pauses around each line can move later without re-filming; push a cut past its
+handle and `status` asks for a re-shoot.
+
+### The editor
+
+After the first render the agent offers a small local editor (`node skills/generate-screencast/assets/editor.mjs
+<project>`): a browser page that previews the edit from the source media, using the same timeline code as the render.
+In it you can drag cuts and lead/tail within the handles, reorder and skip beats, move the camera bubble and captions,
+edit the text, flag beats for a re-shoot, a new voiceover or another QA look (with a note), and render. Tell the agent
+when you're done; adding beats, new takes and filming stay with it.
+
+### Refreshing a video
+
+Weeks later, point the agent at the project folder and ask it to update the video. It runs `status`, which already
+knows about any edits to `screencast.json`. Provenance can't see your app, though, so the agent also re-checks every
+beat's screen against its last QA frames and flags the ones that changed. Then the same loop runs as for a fresh build:
+only the beats whose script, edit or screen changed get a new voiceover, a re-shoot or another QA pass, and the video is
+re-rendered.
 
 See [`SKILL.md`](skills/generate-screencast/SKILL.md) for the full procedure and
 [`references/`](skills/generate-screencast/references) for the per-surface recipes.

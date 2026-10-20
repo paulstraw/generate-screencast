@@ -4,8 +4,10 @@ The real screen is captured with ffmpeg (`avfoundation`, real cursor included) w
 driver compiled from this skill — moves, clicks and types on the same `Clock`. Click ripples are burned in afterwards
 from the logged click timeline.
 
-Copy `<skill>/assets/native-helpers.mjs`, `film-helpers.mjs` (for `Clock`), `ripples.mjs` and `mousectl.swift` into
-the workdir, then `swiftc -O mousectl.swift -o mousectl` (needs Xcode or the Command Line Tools).
+Nothing is copied into the project: `film.mjs` imports `<skill>/assets/project.mjs` and `native-helpers.mjs` by absolute
+path. Build the driver once per machine, beside the shared Playwright install (needs Xcode or the Command Line Tools):
+`swiftc -O <skill>/assets/mousectl.swift -o ~/.cache/generate-screencast/mousectl`, and pass that path to
+`startDriver` and `probePermissions` (both default to `./mousectl`).
 
 ## Hands off
 
@@ -18,8 +20,8 @@ ends up in the take or derails it. Say clearly when they can have it back.
 Both are granted to the app hosting this session (iTerm, Terminal, Ghostty, VS Code, …).
 
 ```js
-import { probePermissions } from './native-helpers.mjs';
-console.log(await probePermissions('.')); // { frame, accessibility }
+import { probePermissions } from '<skill>/assets/native-helpers.mjs';
+console.log(await probePermissions('/tmp', MOUSECTL)); // { frame, accessibility }; MOUSECTL = the built driver
 ```
 
 - **Screen Recording**: Look at `frame`. Real windows visible → granted. Wallpaper only, or no frame → denied: System
@@ -43,7 +45,7 @@ console.log(await probePermissions('.')); // { frame, accessibility }
 Crop to the app window by default and always pass `guardApp`:
 
 ```js
-const cap = startScreenCapture('scenes/s1.mp4', { region: windowBounds('TextEdit'), guardApp: 'TextEdit' });
+const cap = startScreenCapture(b.file, { region: windowBounds('TextEdit'), guardApp: 'TextEdit' });
 ```
 
 A crop region shows whatever is there — if the window leaves (focus change, Space switch, the user clicking), the take
@@ -56,43 +58,55 @@ Rounded window corners show a sliver of wallpaper inside a rectangular crop; it'
 ## Recipe
 
 ```js
-import fs from 'node:fs';
-import { Clock } from './film-helpers.mjs';
-import { activate, windowBounds, backingScale, startScreenCapture, startDriver, sleep } from './native-helpers.mjs';
+import os from 'node:os';
+import { loadProject } from '<skill>/assets/project.mjs';
+import { activate, nativeScene, windowBounds, startScreenCapture, startDriver, sleep } from '<skill>/assets/native-helpers.mjs';
 
-activate('TextEdit');
-await sleep(600);
-const region = windowBounds('TextEdit');
-const scale = backingScale();
-const d = await startDriver();                 // ./mousectl
-await d.move(region.x + 900, region.y + 500);  // park the cursor in frame
-const cap = startScreenCapture('scenes/s1.mp4', { region, scale, guardApp: 'TextEdit' });
-await sleep(1200);                             // capture spin-up; trimmed away
-const clock = new Clock();
-await clock.until(1200);
-await d.glide(region.x + 68, region.y + 49, 900);
-await clock.until(2500);
-await d.click();
-await clock.until(3600);
-await d.type('Hello');
-await clock.until(SCENE_MS);
-const stoppedAt = await cap.stop();
-d.close();
-fs.writeFileSync('scenes/s1.clicks.json', JSON.stringify({ stoppedAt, region, scale, clicks: d.clicks }));
+const p = loadProject(import.meta.dirname);
+const d = await startDriver(`${os.homedir()}/.cache/generate-screencast/mousectl`);
+try {
+  await p.film({
+    edit: nativeScene(p, async (b) => {
+      activate('TextEdit');
+      await sleep(600);
+      const region = windowBounds('TextEdit');
+      await d.move(region.x + 900, region.y + 500); // park the cursor in frame
+      const cap = startScreenCapture(b.file, { region, guardApp: 'TextEdit' }); // b.file = scenes/<id>.mp4
+      const clock = await b.ready(cap, d); // first frames in, head handle held: scene time 0
+      await clock.until(b.at('bold') - 900);
+      await d.glide(region.x + 68, region.y + 49, 900);
+      await d.click();
+      await clock.until(b.at('type'));
+      await d.type('Hello');
+    }), // held to b.sceneMs + the tail handle, then the capture stops
+  });
+} finally {
+  d.close();
+}
 ```
 
 Every driver call resolves when the action has finished (`glide` takes exactly its `ms`; `type` ~40ms/char), so
 `clock.until` marks are absolute deadlines. A `clock overrun` warning means the choreography doesn't fit its marks.
+`nativeScene` records the beat's `scene` entry and writes `scenes/<id>.capture.json` (`t0`, `stoppedAt`, `duration`,
+`region`, `scale`, `clicks`) for the ripple pass.
 
 ## Ripples
 
 ```js
-import { clicksToVideo } from './native-helpers.mjs';
-const log = JSON.parse(fs.readFileSync('scenes/s1.clicks.json'));
-const videoDuration = Number(execFileSync('ffprobe', ['-v','error','-show_entries','format=duration','-of','csv=p=0','scenes/s1.mp4']));
-const pts = clicksToVideo(log.clicks, { ...log, videoDuration, srcW: log.region.w * log.scale, srcH: log.region.h * log.scale });
-fs.writeFileSync('scenes/s1.ripples.json', JSON.stringify(pts));
-// node ripples.mjs scenes/s1.mp4 scenes/s1.ripples.json scenes/s1.r.mp4  → assemble s1.r.mp4
+import fs from 'node:fs';
+import { clicksToVideo } from '<skill>/assets/native-helpers.mjs';
+const log = JSON.parse(fs.readFileSync('scenes/edit.capture.json'));
+const pts = clicksToVideo(log.clicks, { ...log, videoDuration: log.duration, srcW: log.region.w * log.scale, srcH: log.region.h * log.scale });
+fs.writeFileSync('scenes/edit.ripples.json', JSON.stringify(pts));
 ```
 
-For a full-screen capture pass `srcW/srcH` as the display's pixel size and omit `region`.
+Then burn them in and point the beat at the result (same length, so `build.json`'s timing still holds; `raw` keeps the
+original):
+
+```bash
+node <skill>/assets/ripples.mjs scenes/edit.mp4 scenes/edit.ripples.json scenes/edit.r.mp4
+node <skill>/assets/project.mjs use . edit scenes/edit.r.mp4
+```
+
+For a full-screen capture pass `srcW/srcH` as the display's pixel size and omit `region`. Re-filming a beat rewrites
+`scenes/<id>.mp4` and points `scene.file` back at it, so run the ripple pass again after every take.
