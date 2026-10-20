@@ -32,7 +32,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ttsCues, whisperCues } from './captions.mjs';
-import { timeline } from './timeline.mjs';
+import { timeline, voKey } from './timeline.mjs';
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const LANG = /^[A-Za-z]{2,3}([-_][A-Za-z0-9]+)*$/;
@@ -208,11 +208,8 @@ export const formatErrors = (errors) => errors.map((e) => `${e.path || '(root)'}
 
 export const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
 
-// The provenance key of a beat's VO (D5): what the VO says, and who says it. With `say` set, `text` is captions only.
-export function voKey(project, beat) {
-  if (project.voice?.human) return sha256(JSON.stringify(['human', beat.text]));
-  return sha256(JSON.stringify(['tts', project.voice?.tts, beat.say ?? beat.text]));
-}
+// voKey lives in timeline.mjs so the editor can compute staleness in the browser; it's the same SHA-256.
+export { voKey };
 
 export class ConflictError extends Error {
   code = 'ECONFLICT';
@@ -381,13 +378,13 @@ export function loadProject(dir) {
       writeBuild((b) => ({ ...b, assembly: entry }));
     },
 
-    // Removes a beat's `needs` flags of these kinds, as a fresh read-modify-write of screencast.json, so it neither
-    // clobbers nor is blocked by an edit made since this project was loaded. The in-memory copy drops the same flags;
-    // if the file had changed under it, its hash stays stale so a later save() still reports that conflict.
     timeline() {
       return timeline(data, build, captionInputs(data, build));
     },
 
+    // Removes a beat's `needs` flags of these kinds, as a fresh read-modify-write of screencast.json, so it neither
+    // clobbers nor is blocked by an edit made since this project was loaded. The in-memory copy drops the same flags;
+    // if the file had changed under it, its hash stays stale so a later save() still reports that conflict.
     clearFlags(id, kinds) {
       const drop = (beat) => {
         const kept = (beat.needs ?? []).filter((f) => !kinds.includes(f.kind));
@@ -427,7 +424,7 @@ export function voiceOnsets(file) {
 
 /* timeline()'s caption inputs: per beat with a VO, its cues (captions.mjs) and voice onsets, or the error making them.
  * A beat whose timing file doesn't exist yet is left out, which timeline() reports as stale. */
-function captionInputs(data, build) {
+export function captionInputs(data, build) {
   const out = {};
   for (const b of data.beats.filter((x) => !x.skip)) {
     const s = build.beats[b.id] ?? {};
