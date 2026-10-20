@@ -180,7 +180,7 @@ const COMMANDS = {
     human ? `node record-vo.mjs ${dir} ${ids}   (Paul narrates)` : `node tts.mjs ${dir} ${ids}`,
   transcribe: (_, dir, ids) => `node transcribe.mjs ${dir} ${ids}`,
   film: (_, dir, ids) => `node ${dir}/film.mjs ${ids}`,
-  qa: (_, dir, ids) => `qa-grid ${dir} <id> …, look, then node status.mjs ${dir} --qa <id>   (${ids})`,
+  qa: (_, dir, ids) => `node qa-grid.mjs ${dir} <id> [times…], look, then node status.mjs ${dir} --qa <id>   (${ids})`,
 };
 
 export function format(s, { dir = '<dir>', human = false } = {}) {

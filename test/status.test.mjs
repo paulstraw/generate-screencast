@@ -284,7 +284,7 @@ test('CLI: table, --json, and --qa recording a pass and clearing qa flags', need
   const table = run();
   assert.match(table, /^b0\s+qa\s+not checked yet$/m);
   assert.match(table, /^assemble\s+needed\s+3 beats changed/m);
-  assert.match(table, /^next:\n {2}qa-grid .*\(b0 b1 b2\)\n {2}node assemble\.mjs /m);
+  assert.match(table, /^next:\n {2}node qa-grid\.mjs .*\(b0 b1 b2\)\n {2}node assemble\.mjs /m);
 
   const json = JSON.parse(run('--json'));
   assert.deepEqual(json.todo, { vo: [], transcribe: [], film: [], qa: ['b0', 'b1', 'b2'], assemble: true });
