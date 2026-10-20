@@ -58,6 +58,15 @@ test('frames: picture edges, the VO start, overlaps and given times, merged per 
   assert.throws(() => qaFrames(t, 'nope'), /"nope" isn't in the edit/);
 });
 
+test('a boundary that only rounds to the next frame is no overlap', () => {
+  // one's block ends at 5.92s; two's picture starts on the frame at 5.933s, 13ms later.
+  const b = { version: 1, beats: { one: { vo: { duration: 4.92 } }, two: { vo: { duration: 1.5 } } } };
+  const t = timeline(project({ beats: BEATS.slice(0, 2).map(({ cut, ...x }) => x) }), b);
+  assert.equal(t.beats[0].picture[1], 178 / 30);
+  assert.ok(qaFrames(t, 'one').every((f) => !f.labels.some((l) => l.includes('overlap'))));
+  assert.ok(qaFrames(t, 'two').every((f) => !f.labels.some((l) => l.includes('overlap'))));
+});
+
 test('frames follow the filmed lead when lead changed since filming', () => {
   const data = project({ beats: [{ ...BEATS[0], lead: 1 }] });
   const t = timeline(data, build);

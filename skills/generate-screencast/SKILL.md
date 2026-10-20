@@ -45,7 +45,7 @@ an enumeration land.
 
 - Footage that doesn't exist yet (a page, a flow, a state) is built for real. In the user's project: propose the change,
   get approval, and pass that project's own checks (its CLAUDE.md/AGENTS.md, tests, lint). For a purely illustrative beat,
-  a throwaway page in the project folder is fine.
+  a throwaway page in the project folder is fine (serve it, e.g. `python3 -m http.server`; `file://` blocks modules).
 - Terminal footage is curated real output: run the command, keep the honest lines, drop noise. Never invent output.
 
 The user approves the script as prose in conversation, never as JSON. Once they have, write `screencast.json`
@@ -182,7 +182,8 @@ privacy check for the room (what's behind the user, other people, other screens)
 one beat ([references/human-vo.md](references/human-vo.md#camera)).
 
 With burn-in or a camera, the frames only exist composited: run `node <skill>/assets/assemble.mjs <dir> --force` first,
-and the grid is taken from that render. Then also check that:
+and the grid is taken from that render (once every beat's QA is recorded, that render counts as the final one). Then
+also check that:
 
 - no caption covers the thing being narrated (truth rule). Move that beat's captions with `"captionPosition": "top"`,
   or re-frame;

@@ -52,9 +52,10 @@ export function qaFrames(t, id, times = [], { filmedLead } = {}) {
     { x: e.voAt, label: 'VO starts' },
   ];
   // This picture over the previous beat's narration (an L cut), or over the next beat's (a J cut out of this beat).
-  if (p0 < a0 - 1e-6)
+  // Under half a frame is just boundary rounding (picture edges are whole frames, blocks aren't), not a cut.
+  if (p0 < a0 - frame / 2)
     picks.push({ x: (p0 + Math.min(a0, p1)) / 2, label: `L overlap: under "${t.beats[i - 1].id}" narration` });
-  if (p1 > a1 + 1e-6)
+  if (p1 > a1 + frame / 2)
     picks.push({ x: (Math.max(a1, p0) + p1) / 2, label: `J overlap: under "${t.beats[i + 1].id}" narration` });
   for (const s of times) {
     const x = toX(s);

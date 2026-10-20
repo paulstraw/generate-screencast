@@ -252,6 +252,14 @@ test('an impossible edit is reported, not thrown', () => {
   assert.equal(s.timeline, null);
   assert.equal(s.todo.assemble, true);
   assert.deepEqual(reasons(s, 'b0', 'qa'), ['the edit is invalid']);
+  assert.doesNotMatch(s.error, /no VO yet/);
+});
+
+test('cuts that only fail because VO is missing say so', () => {
+  const f = fixture();
+  f.project.beats[2].cut = -1; // fine with VO; with none, b1 is 1s long and the cut swallows it
+  const s = plan(f.project, { version: 1, beats: {} }, {});
+  assert.match(s.error, /cuts leave no picture .*some beats have no VO yet/);
 });
 
 test('the step that satisfies a flag clears it', () => {
@@ -284,7 +292,7 @@ test('CLI: table, --json, and --qa recording a pass and clearing qa flags', need
   const table = run();
   assert.match(table, /^b0\s+qa\s+not checked yet$/m);
   assert.match(table, /^assemble\s+needed\s+3 beats changed/m);
-  assert.match(table, /^next:\n {2}node qa-grid\.mjs .*\(b0 b1 b2\)\n {2}node assemble\.mjs /m);
+  assert.match(table, /^next:\n {2}node \/\S+\/assets\/qa-grid\.mjs .*\(b0 b1 b2\)\n {2}node \/\S+\/assets\/assemble\.mjs /m);
 
   const json = JSON.parse(run('--json'));
   assert.deepEqual(json.todo, { vo: [], transcribe: [], film: [], qa: ['b0', 'b1', 'b2'], assemble: true });

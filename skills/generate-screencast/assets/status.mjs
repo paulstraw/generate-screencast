@@ -150,6 +150,10 @@ export function plan(project, build = { version: 1, beats: {} }, facts = {}) {
     else if (!has(facts.out ?? build.assembly.out)) assemble.push('the deliverable is missing');
   }
 
+  // Beats without VO count as zero seconds, so cuts can't fit yet; say so rather than send anyone to fix the cuts.
+  if (error && beats.some((b) => b.steps.some((st) => st.step === 'vo')))
+    error += ' (some beats have no VO yet and count as 0s, so check again once they do)';
+
   const todo = Object.fromEntries(
     STEPS.map((step) => [step, live.filter((b) => b.steps.some((s) => s.step === step)).map((b) => b.id)]),
   );
@@ -176,14 +180,16 @@ export async function gather(p) {
 }
 
 const COMMANDS = {
-  vo: (human, dir, ids) =>
-    human ? `node record-vo.mjs ${dir} ${ids}   (Paul narrates)` : `node tts.mjs ${dir} ${ids}`,
-  transcribe: (_, dir, ids) => `node transcribe.mjs ${dir} ${ids}`,
+  vo: (human, dir, ids, bin) =>
+    human ? `node ${bin}record-vo.mjs ${dir} ${ids}   (the user narrates)` : `node ${bin}tts.mjs ${dir} ${ids}`,
+  transcribe: (_, dir, ids, bin) => `node ${bin}transcribe.mjs ${dir} ${ids}`,
   film: (_, dir, ids) => `node ${dir}/film.mjs ${ids}`,
-  qa: (_, dir, ids) => `node qa-grid.mjs ${dir} <id> [times…], look, then node status.mjs ${dir} --qa <id>   (${ids})`,
+  qa: (_, dir, ids, bin) =>
+    `node ${bin}qa-grid.mjs ${dir} <id> [times…], look, then node ${bin}status.mjs ${dir} --qa <id>   (${ids})`,
 };
 
-export function format(s, { dir = '<dir>', human = false } = {}) {
+// `bin` prefixes the skill's scripts (the CLI passes their folder, so the commands can be pasted from anywhere).
+export function format(s, { dir = '<dir>', human = false, bin = '' } = {}) {
   const lines = [];
   const width = Math.max(8, ...s.beats.map((b) => b.id.length)) + 2;
   for (const b of s.beats) {
@@ -200,8 +206,8 @@ export function format(s, { dir = '<dir>', human = false } = {}) {
   const todo = STEPS.filter((step) => s.todo[step].length);
   if (todo.length || s.todo.assemble) {
     lines.push('', 'next:');
-    for (const step of todo) lines.push(`  ${COMMANDS[step](human, dir, s.todo[step].join(' '))}`);
-    if (s.todo.assemble) lines.push(`  node assemble.mjs ${dir}`);
+    for (const step of todo) lines.push(`  ${COMMANDS[step](human, dir, s.todo[step].join(' '), bin)}`);
+    if (s.todo.assemble) lines.push(`  node ${bin}assemble.mjs ${dir}`);
   } else lines.push('', 'up to date');
   return lines.join('\n');
 }
@@ -249,7 +255,12 @@ async function main(argv) {
   if (json) {
     const { timeline: _, ...out } = s;
     console.log(JSON.stringify(out, null, 2));
-  } else console.log(format(s, { dir: args[0], human: p.data.voice.human === true }));
+  } else {
+    const { dirname, join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const bin = join(dirname(fileURLToPath(import.meta.url)), '/');
+    console.log(format(s, { dir: args[0], human: p.data.voice.human === true, bin }));
+  }
   if (s.error) process.exitCode = 1;
 }
 

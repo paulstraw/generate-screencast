@@ -11,14 +11,15 @@ and noise can be curated out.
    `page.goto('file://<skill>/assets/terminal.html')` (nothing is copied into the project), and drive it:
 
 ```js
+const stage = { prompt: 'my-app', title: 'my-app — zsh' }; // prompt: after the arrow (the project folder name)
+await page.goto('file://<skill>/assets/terminal.html');
+await page.evaluate((s) => window.__prompt(s), stage); // idle prompt, so the handle and lead aren't an empty window
 const clock = await b.ready();
 const cmd = 'npm test';
 await clock.until(b.at('test') - (350 + cmd.length * 42 + 260)); // Enter lands on the word
 await page.evaluate((a) => window.__run(a), {
+  ...stage,
   cmd,
-  cmd: 'npm test',
-  prompt: 'my-app',          // shown after the arrow; use the project folder name
-  title: 'my-app — zsh',     // window title bar
   lines: [
     [300, '<span class="dim">> vitest run</span>'],
     [1400, '<span class="ok">✓</span> src/sum.test.ts <span class="dim">(3 tests)</span>'],
@@ -28,8 +29,8 @@ await page.evaluate((a) => window.__run(a), {
 ```
 
 `lines` are `[msAfterEnter, html]`. The command types at 42ms/char starting at 350ms, so Enter lands at
-`350 + cmd.length*42 + 260` ms after `__run` — schedule it from the VO marks as above. Set the title before `b.ready()`
-(`document.getElementById('title').textContent = …`) so the head handle shows the right window. Classes: `p` (prompt),
+`350 + cmd.length*42 + 260` ms after `__run` — schedule it from the VO marks as above. `__prompt` before `b.ready()`
+puts the window title and an idle prompt on screen, so the head handle and lead show the right window. Classes: `p` (prompt),
 `cmd`, `dim`, `ok`, `strong`, `url`, `badge-run`/`badge-dark`/`badge-light`/`badge-unit` (pill labels). Escape `<`/`>`
 in output text.
 
