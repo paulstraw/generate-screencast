@@ -100,6 +100,15 @@ is not yet tested.
 See [`SKILL.md`](skills/generate-screencast/SKILL.md) for the full procedure and
 [`references/`](skills/generate-screencast/references) for the per-surface recipes.
 
+## Developing
+
+The tests live in `test/` at the repo root, outside the skill folder the skills CLI installs. They need only Node and,
+for the media tests, ffmpeg (skipped with a message when it's missing):
+
+```bash
+node --test test/*.test.mjs
+```
+
 ## License
 
 [MIT](LICENSE)
