@@ -10,12 +10,90 @@
  * from the END of the recording (videoDuration - (stoppedAt - clickedAt)),
  * the same trim-from-the-end principle as assembly: capture start-up latency
  * is unknowable, stop is not.
+ *
+ * nativeScene() wraps any of the recorders below as a scene for p.film(), the
+ * counterpart of p.browserScene(): the scene function sets the screen up,
+ * starts a capture into b.file, and calls `await b.ready(capture, driver?)`,
+ * which waits for the capture's first frames, holds the head handle and
+ * starts the Clock. After the function returns the screen is held to
+ * sceneMs + handle, the capture stops, and `end` is the stop's scene time:
+ *
+ *   save: nativeScene(p, async (b) => {
+ *     activate('TextEdit');
+ *     const cap = startScreenCapture(b.file, { region: windowBounds('TextEdit'), guardApp: 'TextEdit' });
+ *     const clock = await b.ready(cap, d);
+ *     await clock.until(b.at('Save'));
+ *     await d.glide(x, y, 700);
+ *     await d.click();
+ *   }),
+ *
+ * It also writes scenes/<id>.capture.json ({ kind, t0, stoppedAt, duration,
+ * region, scale, clicks }) for the ripple pass (clicksToVideo/tapsToFrame).
  */
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
+import { Clock } from './film-helpers.mjs';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8' }).trim();
+const probe = (file) => Number(run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]));
+
+/* ---------- Scenes for p.film() ---------- */
+
+/*
+ * Scene timing of a native recording whose clock started at wall time `t0`
+ * (ms) and which stopped at `stoppedAt` (ms): the file ends at the stop, so
+ * `end` (s) is the stop's scene time, and the footage runs back `duration`
+ * seconds from it, never before the head handle.
+ */
+export function nativeTiming({ t0, stoppedAt, duration, handle }) {
+  const r = (x) => Math.round(x * 1000) / 1000;
+  const end = r((stoppedAt - t0) / 1000);
+  return { end, footage: [r(Math.max(-handle / 1000, end - duration)), end] };
+}
+
+// A recorder's stop() resolves to the stop's wall time, or { stoppedAt } (the iOS Simulator's).
+const stopTime = (r) => (typeof r === 'number' ? r : r.stoppedAt);
+
+export function nativeScene(p, fn) {
+  return async (b) => {
+    const file = p.sceneFile(b.id, 'mp4');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.rmSync(file, { force: true });
+    let cap = null;
+    let driver = null;
+    let clock = null;
+    let stopped = false;
+    b.file = file;
+    b.ready = async (capture, d) => {
+      if (clock) throw new Error('b.ready() called twice');
+      if (!capture?.stop) throw new Error('b.ready(capture) needs the started capture');
+      cap = capture;
+      driver = d ?? null;
+      await Promise.race([capture.started, sleep(10_000)]); // a recorder that never says so still gets filmed
+      await sleep(b.handle + 250);
+      clock = b.clock = new Clock();
+      return clock;
+    };
+    try {
+      await fn(b);
+      if (!clock) throw new Error(`scene "${b.id}" never called b.ready(capture)`);
+      await clock.until(b.sceneMs + b.handle);
+      stopped = true;
+      const stoppedAt = stopTime(await cap.stop(file));
+      const duration = probe(file);
+      const timing = nativeTiming({ t0: clock.t0, stoppedAt, duration, handle: b.handle });
+      const { kind, region, scale } = cap;
+      const log = { kind, t0: clock.t0, stoppedAt, duration, region, scale, clicks: driver?.clicks ?? [] };
+      fs.writeFileSync(file.replace(/\.mp4$/, '.capture.json'), `${JSON.stringify(log, null, 2)}\n`);
+      return { file, ...timing };
+    } catch (err) {
+      if (cap && !stopped) await Promise.resolve(cap.stop(file)).catch(() => {}); // never leave a capture running
+      throw err;
+    }
+  };
+}
 
 /* ---------- macOS desktop ---------- */
 
@@ -126,12 +204,25 @@ export function startScreenCapture(out, { region, scale = backingScale(), fps = 
   const h = captureHandle(proc, () => proc.stdin.write('q'), { kind: 'screen', region, scale });
   return {
     ...h,
+    started: fileGrows(out),
     async stop() {
       if (timer) clearInterval(timer);
       if (breach) throw new Error(`take aborted: ${breach} took focus`);
       return h.stop();
     },
   };
+}
+
+/*
+ * Resolves once ffmpeg has written frames to `file` (the muxer writes nothing
+ * until its first packet), or after `timeout` ms regardless.
+ */
+async function fileGrows(file, timeout = 5000) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    if ((fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0) > 1024) return;
+    await sleep(50);
+  }
 }
 
 function captureHandle(proc, stopFn, meta) {
@@ -254,14 +345,17 @@ export function startSimRecording(udid = 'booted') {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let startedAt = null;
+  let onStart;
+  const started = new Promise((r) => (onStart = r));
   const mark = (d) => {
-    if (startedAt === null && /Recording started/i.test(String(d))) startedAt = Date.now();
+    if (startedAt === null && /Recording started/i.test(String(d))) onStart((startedAt = Date.now()));
   };
   proc.stdout.on('data', mark);
   proc.stderr.on('data', mark);
   const h = captureHandle(proc, () => proc.kill('SIGINT'), { kind: 'ios' });
   return {
     ...h,
+    started,
     async stop(out) {
       const stoppedAt = await h.stop();
       normalizeVfr(raw, out, (stoppedAt - startedAt) / 1000);
@@ -305,8 +399,10 @@ export function startAndroidRecording(remote = '/sdcard/scene.mp4') {
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   let startedAt = null;
+  let onStart;
+  const started = new Promise((r) => (onStart = r));
   proc.stdout.on('data', (d) => {
-    if (startedAt === null && /Content area is/.test(String(d))) startedAt = Date.now();
+    if (startedAt === null && /Content area is/.test(String(d))) onStart((startedAt = Date.now()));
   });
   const h = captureHandle(proc, () => {
     try {
@@ -317,6 +413,7 @@ export function startAndroidRecording(remote = '/sdcard/scene.mp4') {
   }, { kind: 'android' });
   return {
     ...h,
+    started,
     async stop(localOut) {
       const stoppedAt = await h.stop();
       await sleep(800);
