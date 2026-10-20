@@ -150,3 +150,62 @@ button:hover { border-color: var(--accent); }
 .badge.follows { color: var(--dim); border-color: var(--line); }
 .badge.flag { color: var(--flag); border-color: var(--flag); }
 .badge.skip { color: var(--dim); border-color: var(--dim); }
+
+/* Editing: settings bar, notices, render output. */
+input, select, textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+input[type='checkbox'] { accent-color: var(--accent); }
+input.num { width: 72px; }
+button:disabled { opacity: 0.45; cursor: default; border-color: var(--line); }
+button.icon { padding: 0 7px; }
+#controls { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+#settings { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
+#settings label { display: flex; align-items: center; gap: 6px; }
+#settings label[hidden] { display: none; }
+#set-voice { width: 200px; }
+#actions { display: flex; gap: 8px; align-items: center; }
+#save-status { color: var(--stale); font-size: 12px; }
+#notice { border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; }
+#notice[hidden] { display: none; }
+#notice.conflict, #notice.error { background: #3a1a1c; border: 1px solid var(--flag); }
+#notice.info { background: var(--panel); border: 1px solid var(--line); }
+#render-out { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 12px; display: grid; gap: 12px; }
+#render-out[hidden] { display: none; }
+#render-log { margin: 0; max-height: 180px; overflow: auto; font: 12px/1.4 ui-monospace, 'SF Mono', Menlo, monospace; white-space: pre-wrap; }
+#render-log .err { color: var(--dim); }
+#render-log .ok { color: var(--ok); }
+#result { width: 100%; max-height: 50vh; background: #000; border-radius: 4px; }
+#result[hidden] { display: none; }
+
+/* Ruler handles: wide invisible hit areas around a thin visible line. */
+.lane .handle { position: absolute; top: 0; bottom: 0; width: 12px; margin-left: -6px; cursor: ew-resize; z-index: 2; }
+.lane .handle::after { content: ''; position: absolute; left: 5px; width: 2px; top: 2px; bottom: 2px; border-radius: 1px; }
+.lane .handle.cut::after { background: #fff; opacity: 0.0; }
+.lane .handle.lead::after, .lane .handle.tail::after { background: #fff; opacity: 0.35; }
+.lane .handle:hover::after { opacity: 1; background: var(--accent); }
+.lane .pic.over { border-color: var(--flag); box-shadow: inset 0 0 0 1px var(--flag); }
+
+/* Beat rows: side column with badges and reorder/skip; the Edit form folds out under the text. */
+.beat .side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.beat .tools { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--dim); }
+.beat .tools .skip { display: flex; align-items: center; gap: 4px; margin-left: 4px; cursor: pointer; }
+.beat .why[hidden] { display: none; }
+.edit { margin-top: 6px; }
+.edit summary { color: var(--accent); font-size: 12px; cursor: pointer; user-select: none; }
+.edit .form { display: grid; gap: 8px; margin-top: 8px; cursor: default; }
+.edit .field { display: grid; gap: 2px; font-size: 12px; color: var(--dim); }
+.edit .field[hidden], .edit .group[hidden] { display: none; }
+.edit textarea { width: 100%; resize: vertical; font-size: 14px; }
+.edit .group { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+.edit .flag-box { display: grid; gap: 4px; font-size: 12px; color: var(--dim); }
+.edit .flags { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; color: var(--text); }
+.edit .flags .kind { color: var(--flag); font-weight: 600; }
+.edit .flags button { margin-left: 6px; font-size: 11px; }
+.edit input[name='flagNote'] { flex: 1; min-width: 160px; }

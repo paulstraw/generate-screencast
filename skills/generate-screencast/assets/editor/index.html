@@ -15,13 +15,30 @@
       <div id="render-status"></div>
     </header>
     <div id="error" hidden></div>
+    <section id="controls">
+      <div id="settings">
+        <label id="set-voice-tts">Voice <input id="set-voice" type="text" spellcheck="false" /></label>
+        <label id="set-voice-human" hidden><input id="set-normalize" type="checkbox" /> normalize loudness</label>
+        <label
+          >Size <input id="set-w" class="num" type="number" min="16" max="7680" step="2" /> ×
+          <input id="set-h" class="num" type="number" min="16" max="7680" step="2"
+        /></label>
+        <label><input id="set-burn" type="checkbox" /> burn in captions</label>
+      </div>
+      <div id="actions">
+        <span id="save-status"></span>
+        <button id="save" type="button" title="Save screencast.json (⌘S)" disabled>Save</button>
+        <button id="render" type="button">Render</button>
+      </div>
+    </section>
+    <div id="notice" hidden></div>
 
     <section id="viewer">
       <div id="frame"><div id="stage"></div></div>
       <div id="transport">
         <button id="play" type="button" title="Play / pause (space)">Play</button>
         <span id="time">0:00.00 / 0:00.00</span>
-        <span id="hint">space play/pause · ←/→ one frame · shift+←/→ one second</span>
+        <span id="hint">space play/pause · ←/→ one frame · shift+←/→ one second · drag a cut or lead/tail edge (alt: past the handles)</span>
       </div>
       <div id="ruler">
         <div id="labels"><div>Picture</div><div>Voice</div><div></div></div>
@@ -32,6 +49,11 @@
           <div id="playhead"></div>
         </div>
       </div>
+    </section>
+
+    <section id="render-out" hidden>
+      <pre id="render-log"></pre>
+      <video id="result" controls playsinline hidden></video>
     </section>
 
     <ol id="beats"></ol>
