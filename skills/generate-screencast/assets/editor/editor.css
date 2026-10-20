@@ -1,0 +1,152 @@
+/* The clip editor's page. Dark, dense, one column: header, preview, ruler, beat rows. */
+:root {
+  --bg: #111318;
+  --panel: #1a1d24;
+  --line: #2a2e38;
+  --text: #e6e8ee;
+  --dim: #8d93a3;
+  --ok: #3fb37f;
+  --stale: #e0a03a;
+  --flag: #e05a5a;
+  --accent: #6aa8ff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 16px 24px 48px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+}
+code { font: 12px ui-monospace, 'SF Mono', Menlo, monospace; color: var(--dim); }
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 14px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+
+#top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 12px; }
+#top h1 { margin: 0; font-size: 20px; font-weight: 600; }
+#summary { color: var(--dim); font-size: 13px; }
+#render-status { text-align: right; max-width: 50%; }
+#render-status .why { color: var(--dim); font-size: 12px; margin-top: 4px; }
+#error {
+  background: #3a1a1c;
+  border: 1px solid var(--flag);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+/* Preview: the stage is laid out in output pixels and scaled to fit the frame (editor.js fit()). */
+#viewer { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+#frame { position: relative; overflow: hidden; background: #000; border-radius: 4px; }
+#stage { position: absolute; top: 0; transform-origin: 0 0; overflow: hidden; }
+.clip { position: absolute; inset: 0; }
+.clip[hidden] { display: none; }
+.clip video { position: absolute; }
+.clip video.screen { inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.clip video.cam.full { inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.clip video.cam.pip { object-fit: cover; border-radius: 50%; }
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+  font-size: calc(var(--font) * 1.2);
+}
+.placeholder.cam { inset: auto 0 0 auto; width: 30%; height: 30%; font-size: var(--font); }
+
+/* Captions: caption-frames.mjs's pill, in output pixels. */
+#captions { position: absolute; inset: 0; pointer-events: none; }
+.cue { position: absolute; left: var(--side); right: var(--side); display: flex; justify-content: center; }
+.cue.bottom { bottom: var(--bottom); }
+.cue.top { top: var(--top); }
+.cue .pill {
+  font: 600 var(--font) / 1.25 -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  color: #fff;
+  text-align: center;
+  white-space: pre;
+  padding: calc(var(--font) * 0.28) calc(var(--font) * 0.6);
+  border-radius: calc(var(--font) * 0.45);
+  background: rgba(12, 14, 20, 0.78);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+#transport { display: flex; align-items: center; gap: 12px; margin: 10px 0 6px; }
+#time { font: 13px ui-monospace, 'SF Mono', Menlo, monospace; }
+#hint { color: var(--dim); font-size: 12px; margin-left: auto; }
+
+/* Ruler: pictures above, voice blocks below, on one time axis. */
+#ruler { display: grid; grid-template-columns: 64px 1fr; user-select: none; }
+#labels > div { height: 30px; line-height: 30px; color: var(--dim); font-size: 12px; }
+#labels > div:last-child { height: 18px; }
+#lanes { position: relative; cursor: col-resize; }
+.lane { position: relative; height: 30px; }
+#lane-ticks { height: 18px; }
+.lane .pic, .lane .block {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.lane .pic {
+  background: hsl(var(--hue) 45% 32%);
+  border: 1px solid hsl(var(--hue) 50% 48%);
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 22px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lane .block { background: hsl(var(--hue) 25% 20%); border: 1px solid hsl(var(--hue) 30% 34%); }
+.lane .block .vo { position: absolute; top: 4px; bottom: 4px; background: hsl(var(--hue) 50% 55%); border-radius: 2px; }
+.lane .overlap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0 4px, transparent 4px 8px);
+  border-top: 2px solid var(--stale);
+  pointer-events: auto;
+}
+.lane .cut { position: absolute; top: 0; bottom: -27px; width: 2px; margin-left: -1px; background: #fff8; }
+.tick { position: absolute; top: 2px; font-size: 11px; color: var(--dim); padding-left: 3px; border-left: 1px solid var(--line); }
+#playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+
+/* Beat rows. */
+#beats { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.beat {
+  display: grid;
+  grid-template-columns: 24px 160px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.beat.active { border-color: var(--accent); }
+.beat.skipped { opacity: 0.5; }
+.beat .n { color: var(--dim); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.thumb { width: 160px; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 4px; display: block; }
+.thumb.empty { display: grid; place-items: center; color: var(--dim); font-size: 12px; }
+.beat .title { font-weight: 600; }
+.beat .meta { color: var(--dim); font-size: 12px; }
+.beat .text { margin-top: 4px; }
+.beat .why { margin: 4px 0 0; padding-left: 16px; color: var(--stale); font-size: 12px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; max-width: 280px; }
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; border: 1px solid; }
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+.badge.stale { color: var(--stale); border-color: var(--stale); }
+.badge.follows { color: var(--dim); border-color: var(--line); }
+.badge.flag { color: var(--flag); border-color: var(--flag); }
+.badge.skip { color: var(--dim); border-color: var(--dim); }

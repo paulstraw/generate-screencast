@@ -4,14 +4,38 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Screencast editor</title>
+    <link rel="stylesheet" href="/editor.css" />
   </head>
   <body>
-    <!-- Placeholder: the editor page (editor.js, editor.css) replaces this. -->
-    <main id="app">Loading…</main>
-    <script type="module">
-      const r = await fetch('/api/project');
-      const s = await r.json();
-      document.getElementById('app').textContent = r.ok ? `${s.data.title}: ${s.data.beats.length} beats` : s.error;
-    </script>
+    <header id="top">
+      <div>
+        <h1 id="title">Loading…</h1>
+        <div id="summary"></div>
+      </div>
+      <div id="render-status"></div>
+    </header>
+    <div id="error" hidden></div>
+
+    <section id="viewer">
+      <div id="frame"><div id="stage"></div></div>
+      <div id="transport">
+        <button id="play" type="button" title="Play / pause (space)">Play</button>
+        <span id="time">0:00.00 / 0:00.00</span>
+        <span id="hint">space play/pause · ←/→ one frame · shift+←/→ one second</span>
+      </div>
+      <div id="ruler">
+        <div id="labels"><div>Picture</div><div>Voice</div><div></div></div>
+        <div id="lanes">
+          <div class="lane" id="lane-picture"></div>
+          <div class="lane" id="lane-voice"></div>
+          <div class="lane" id="lane-ticks"></div>
+          <div id="playhead"></div>
+        </div>
+      </div>
+    </section>
+
+    <ol id="beats"></ol>
+
+    <script type="module" src="/editor.js"></script>
   </body>
 </html>
