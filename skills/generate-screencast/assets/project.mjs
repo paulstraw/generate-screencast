@@ -18,6 +18,38 @@
  *   const errors = validate(JSON.parse(fs.readFileSync('screencast.json', 'utf8')));
  *   // [{ path: 'beats[2].cam', message: 'must be pip | full | off' }, …]
  *
+ * It is also the film helper. A project's film.mjs is choreography only:
+ *
+ *   import { loadProject, importPlaywright } from '<skill>/assets/project.mjs';
+ *   import { setCur, glide, clickHere, bboxCenter } from '<skill>/assets/film-helpers.mjs';
+ *   const p = loadProject(import.meta.dirname);
+ *   const { chromium } = await importPlaywright();
+ *   const browser = await chromium.launch();
+ *   await p.film({
+ *     save: p.browserScene(browser, async (page, b) => {
+ *       await page.goto(URL, { waitUntil: 'networkidle' });
+ *       await setCur(page, 960, 540);
+ *       const clock = await b.ready();         // screen settled: holds the head handle, then scene time 0
+ *       await clock.until(b.at('Save'));       // scene ms of the first "Save" in the VO; b.at(2): sentence 2
+ *       await glide(page, x, y, 700);
+ *     }),                                      // then holds to b.sceneMs + the tail handle and stops
+ *   });
+ *   await browser.close();
+ *
+ * `node film.mjs save` films only the named beats. Each filmed beat records its build.json `scene` entry and clears
+ * its `reshoot` flags. p.beat(id) is { id, sceneMs, voAt, handle, at(word | n) }, all in scene-time milliseconds:
+ * scene time 0 is when the clock starts, the VO starts at voAt (the lead), and sceneMs is lead + VO + tail. Every
+ * recording keeps `handle` ms of footage before 0 and after sceneMs, so cuts and trims can move without re-shooting.
+ * A scene is any async (b) => ({ file, end, footage? }): `end` is the scene time (seconds) of the file's last frame,
+ * so scene time t is file time t + (duration − end), and `footage` the usable scene-time range (default [−handle or
+ * the file's start, end]). native-helpers.mjs wraps its recorders the same way.
+ *
+ *   node project.mjs use <dir> <id> <file>   // points a beat's scene at a post-processed variant (device frame,
+ *                                            // ripples) of the same length; `raw` keeps the original
+ *
+ * Playwright and Chromium live once per machine in ~/.cache/generate-screencast (PLAYWRIGHT_INSTALL), never in the
+ * project or the user's repo; importPlaywright() loads them from there.
+ *
  * screencast.schema.json describes the same shape for editor autocomplete. Validation is hand-rolled rather than a
  * schema library because the skill has no npm dependencies; `validateShape` mirrors the schema rule for rule (a test
  * walks the schema and checks they agree), and `validate` adds the cross-field rules a schema can't express.
@@ -27,12 +59,16 @@
  * else's edit. build.json has one writer class (the pipeline scripts); each write re-reads it, merges, and replaces it
  * atomically (temp file + rename), so a crash never leaves half a file and deleting it just means everything is stale.
  */
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
-import { ttsCues, whisperCues } from './captions.mjs';
-import { timeline, voKey } from './timeline.mjs';
+import { pathToFileURL } from 'node:url';
+import { parseSrt, respell, sentences, ttsCues, whisperCues } from './captions.mjs';
+import { Clock, CURSOR_INIT, sleep } from './film-helpers.mjs';
+import { HANDLE, timeline, voKey } from './timeline.mjs';
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const LANG = /^[A-Za-z]{2,3}([-_][A-Za-z0-9]+)*$/;
@@ -382,6 +418,107 @@ export function loadProject(dir) {
       return timeline(data, build, captionInputs(data, build));
     },
 
+    // A beat as film.mjs sees it, in scene-time ms. Needs the beat's VO; cuts don't matter (they move only pictures).
+    beat(id) {
+      const raw = p.find(id);
+      if (raw.skip) throw new Error(`"${id}" is skipped; there's nothing to film`);
+      const vo = build.beats[id]?.vo;
+      if (typeof vo?.duration !== 'number') throw new Error(`"${id}" has no VO yet; make it before filming`);
+      const uncut = { ...data, beats: data.beats.map(({ cut, ...b }) => b) };
+      const { block, voAt } = timeline(uncut, build).beats.find((e) => e.id === id);
+      const lead = Math.round((voAt - block[0]) * 1000);
+      let words;
+      return {
+        id,
+        sceneMs: Math.round((block[1] - block[0]) * 1000),
+        voAt: lead,
+        handle: HANDLE * 1000,
+        at(what) {
+          words ??= voWords(data, build, raw);
+          return lead + Math.round(wordAt(words, what, id) * 1000);
+        },
+      };
+    },
+
+    // Films the given scenes ({ id: async (b) => ({ file, end }) }), or only the ids on the command line, in project
+    // order, recording each. A failing scene doesn't stop the rest; film() throws at the end naming them.
+    async film(scenes, { only = process.argv.slice(2).filter((a) => !a.startsWith('-')), log = console.log } = {}) {
+      for (const id of [...Object.keys(scenes), ...only]) p.find(id);
+      const missing = only.filter((id) => !(id in scenes));
+      if (missing.length) throw new Error(`film.mjs has no scene for ${missing.map((id) => `"${id}"`).join(', ')}`);
+      const ids = data.beats
+        .filter((b) => b.id in scenes && (only.length ? only.includes(b.id) : !b.skip))
+        .map((b) => b.id);
+      const failed = [];
+      for (const id of ids) {
+        try {
+          const b = p.beat(id);
+          log(`${id}: filming ${(b.sceneMs / 1000).toFixed(2)}s (+${HANDLE}s handles)`);
+          const { file, end, footage } = await scenes[id](b);
+          const scene = recordScene(p, id, file, end, b, footage);
+          log(`${id}: ${p.rel(scene.file)}  footage ${scene.footage[0]}s…${scene.footage[1]}s`);
+        } catch (err) {
+          failed.push(id);
+          console.error(`${id}: ${err.stack ?? err.message}`);
+        }
+      }
+      if (failed.length) throw new Error(`${failed.length} scene(s) failed: ${failed.join(' ')}`);
+      return ids;
+    },
+
+    // A Playwright scene: one recording context per beat, at the project's size. `fn(page, b)` sets the screen up,
+    // calls `await b.ready()` once it's settled (which holds the head handle, then starts and returns the Clock), and
+    // choreographs on that clock. After it returns the screen is held to sceneMs + handle, then recording stops.
+    //
+    // Playwright's video isn't tied to wall time at its ends: Chromium only sends frames when something repaints, the
+    // file starts at the first one (often stale), and stopping appends ≥1s of the last frame. So the page repaints
+    // one invisible pixel every frame (FRAME_TICKER) to keep frames flowing, and at the stop the screen flashes
+    // magenta: finding the flash's first frame in the file pins scene time to file time. The flash is after the
+    // footage.
+    browserScene(browser, fn, contextOptions = {}) {
+      return async (b) => {
+        const [width, height] = data.size ?? [1920, 1080];
+        const file = p.sceneFile(b.id, 'webm');
+        const tmp = path.join(path.dirname(file), `.recording-${b.id}`);
+        fs.rmSync(tmp, { recursive: true, force: true });
+        fs.mkdirSync(tmp, { recursive: true });
+        const ctx = await browser.newContext({
+          ...contextOptions,
+          viewport: { width, height },
+          recordVideo: { dir: tmp, size: { width, height } },
+        });
+        let clock = null;
+        let flashed;
+        try {
+          const page = await ctx.newPage();
+          await page.addInitScript(CURSOR_INIT);
+          await page.addInitScript(FRAME_TICKER);
+          b.ready = async () => {
+            if (clock) throw new Error('b.ready() called twice');
+            await sleep(b.handle + 250); // the file's first frame can land a frame or two late
+            clock = b.clock = new Clock();
+            return clock;
+          };
+          await fn(page, b);
+          if (!clock) throw new Error(`scene "${b.id}" never called b.ready()`);
+          await clock.until(b.sceneMs + b.handle);
+          flashed = await page.evaluate(SYNC_FLASH);
+          await sleep(300);
+          const video = page.video();
+          await ctx.close();
+          fs.renameSync(await video.path(), file);
+        } finally {
+          await ctx.close().catch(() => {});
+          fs.rmSync(tmp, { recursive: true, force: true });
+        }
+        // File time `sync` is scene time `stop`, so the file ends at scene time stop + duration − sync.
+        const stop = (flashed - clock.t0) / 1000;
+        const duration = probe(file);
+        const end = stop + duration - syncTime(file);
+        return { file, end, footage: [Math.max(-b.handle / 1000, end - duration), stop] };
+      };
+    },
+
     // Removes a beat's `needs` flags of these kinds, as a fresh read-modify-write of screencast.json, so it neither
     // clobbers nor is blocked by an edit made since this project was loaded. The in-memory copy drops the same flags;
     // if the file had changed under it, its hash stays stale so a later save() still reports that conflict.
@@ -407,6 +544,188 @@ export function loadProject(dir) {
 }
 
 export const loadTimeline = (dir) => loadProject(dir).timeline();
+
+// --- Film -----------------------------------------------------------------------------------------------------------
+
+const probe = (file) =>
+  Number(
+    execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], {
+      encoding: 'utf8',
+    }),
+  );
+const ms3 = (t) => Math.round(t * 1000) / 1000;
+const norm = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+/* A beat's spoken words, [{ w, s, sentence }] with `s` seconds into its VO. TTS: the script's words, timed by word
+ * count inside each sentence of the edge-tts .srt (as captions are). Human: whisper's words, respelled. */
+export function voWords(data, build, beat) {
+  const s = build.beats[beat.id] ?? {};
+  const label = `beat "${beat.id}"`;
+  if (data.voice.human) {
+    if (!s.txt?.file) throw new Error(`${label} isn't transcribed yet; word marks come from the transcript`);
+    const j = JSON.parse(fs.readFileSync(s.txt.file, 'utf8'));
+    const raw = (j.segments ?? [])
+      .flatMap((seg) => seg.words ?? [])
+      .map((x) => ({ w: x.word.trim(), s: x.start, e: x.end }));
+    let sentence = 1;
+    return respell(
+      raw.filter((x) => x.w),
+      data.spellings ?? {},
+    ).map((x, k, all) => {
+      const out = { w: x.w, s: x.s, sentence };
+      if (/[.!?…]["'”’)\]]*$/.test(x.w) && k + 1 < all.length) sentence++;
+      return out;
+    });
+  }
+  const subs = s.vo.subs ?? s.vo.file.replace(/\.[^./]+$/, '.srt');
+  ttsCues(subs, beat.text, label); // throws on a sentence-count mismatch
+  const cues = parseSrt(fs.readFileSync(subs, 'utf8'));
+  return sentences(beat.text).flatMap((text, i) => {
+    const ws = text.split(' ');
+    const { start, end } = cues[i];
+    return ws.map((w, k) => ({ w, s: start + ((end - start) * k) / ws.length, sentence: i + 1 }));
+  });
+}
+
+// Seconds into the VO of sentence `what` (1-based) or of the first occurrence of a word or phrase.
+export function wordAt(words, what, id = '?') {
+  if (typeof what === 'number') {
+    const w = words.find((x) => x.sentence === what);
+    if (!w) throw new Error(`beat "${id}" has no sentence ${what} (it has ${words.at(-1)?.sentence ?? 0})`);
+    return w.s;
+  }
+  const want = String(what).split(/\s+/).map(norm).filter(Boolean);
+  const said = words.map((x) => norm(x.w));
+  const k = said.findIndex((_, i) => want.length && want.every((n, j) => said[i + j] === n));
+  if (k < 0) throw new Error(`beat "${id}" never says "${what}"; it says: ${words.map((x) => x.w).join(' ')}`);
+  return words[k].s;
+}
+
+/* Keeps Chromium sending video frames: one corner pixel alternates between two all-but-transparent shades every
+ * animation frame. Runs in the top document of a recorded page. */
+const FRAME_TICKER = `
+if (window === window.top) {
+  const install = () => {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;z-index:2147483647;pointer-events:none';
+    document.documentElement.appendChild(d);
+    let on = false;
+    const tick = () => ((on = !on), (d.style.background = on ? 'rgba(0,0,0,.01)' : 'rgba(0,0,0,.02)'), requestAnimationFrame(tick));
+    tick();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install); else install();
+}
+`;
+
+/* Covers the screen magenta and resolves to the wall time (ms) of the first frame showing it. Runs in the page;
+ * syncTime() finds that frame in the recording. */
+const SYNC_FLASH = () =>
+  new Promise((resolve) =>
+    requestAnimationFrame(() => {
+      const d = document.createElement('div');
+      d.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#f0f;pointer-events:none';
+      document.documentElement.appendChild(d);
+      resolve(performance.timeOrigin + performance.now());
+    }),
+  );
+
+// File time (s) of the first frame of the final run of SYNC_FLASH frames in a recording.
+export function syncTime(file) {
+  const pts = execFileSync(
+    'ffprobe',
+    ['-v', 'error', '-select_streams', 'v', '-show_entries', 'frame=pts_time', '-of', 'csv=p=0', file],
+    {
+      encoding: 'utf8',
+    },
+  )
+    .trim()
+    .split('\n')
+    .map(Number);
+  const args = [
+    '-v',
+    'error',
+    '-i',
+    file,
+    '-vf',
+    'scale=4:4,format=rgb24',
+    '-fps_mode',
+    'passthrough',
+    '-f',
+    'rawvideo',
+    '-',
+  ];
+  const rgb = execFileSync('ffmpeg', args, { maxBuffer: 1 << 28 });
+  const magenta = (k) => {
+    let [r, g, b] = [0, 0, 0];
+    for (let i = k * 48; i < k * 48 + 48; i += 3) [r, g, b] = [r + rgb[i], g + rgb[i + 1], b + rgb[i + 2]];
+    return r / 16 > 200 && g / 16 < 60 && b / 16 > 200;
+  };
+  let k = Math.min(pts.length, rgb.length / 48) - 1;
+  if (k < 0 || !magenta(k)) throw new Error(`${file}: no sync flash at the end, so scene time can't be pinned`);
+  while (k > 0 && magenta(k - 1)) k--;
+  return pts[k];
+}
+
+// Records a filmed scene for beat `b` (from p.beat): what it was timed to, and the scene time its footage covers
+// (default: from −handle, or the file's start if later, to `end`).
+export function recordScene(p, id, file, end, b = p.beat(id), footage) {
+  file = path.resolve(p.dir, file);
+  if (!fs.existsSync(file)) throw new Error(`scene "${id}" returned ${file}, which doesn't exist`);
+  const duration = ms3(probe(file));
+  if (!(typeof end === 'number' && end > 0))
+    throw new Error(`scene "${id}" returned end ${end}; it must be the scene time (s) of the recording's last frame`);
+  end = ms3(end);
+  const scene = {
+    file,
+    raw: file,
+    voKey: p.build.beats[id].vo.key,
+    lead: b.voAt / 1000,
+    duration,
+    end,
+    footage: footage ? footage.map(ms3) : [ms3(Math.max(-HANDLE, end - duration)), end],
+    at: new Date().toISOString(),
+  };
+  if (end < b.sceneMs / 1000)
+    console.warn(`${id}: recording stopped at ${end}s, before the scene ends (${b.sceneMs / 1000}s)`);
+  p.recordBuild(id, { scene });
+  p.clearFlags(id, ['reshoot']);
+  return p.build.beats[id].scene;
+}
+
+// Points beat `id`'s scene at a post-processed variant of its raw recording, which must be the same length.
+export function useVariant(p, id, file) {
+  const scene = p.build.beats[id]?.scene;
+  if (!scene) throw new Error(`"${id}" hasn't been filmed yet`);
+  const raw = scene.raw ?? scene.file;
+  file = path.resolve(file);
+  if (!fs.existsSync(file)) throw new Error(`${file}: not found`);
+  const [a, b] = [probe(raw), probe(file)];
+  if (Math.abs(a - b) > 0.1)
+    throw new Error(
+      `${file} runs ${b.toFixed(3)}s but the raw recording ${raw} runs ${a.toFixed(3)}s; they must match`,
+    );
+  p.recordBuild(id, { scene: { ...scene, file, raw } });
+  return p.build.beats[id].scene;
+}
+
+export const PLAYWRIGHT_HOME = path.join(os.homedir(), '.cache', 'generate-screencast');
+export const PLAYWRIGHT_INSTALL =
+  'mkdir -p ~/.cache/generate-screencast && cd ~/.cache/generate-screencast && npm init -y >/dev/null && ' +
+  'npm i playwright && npx playwright install chromium';
+
+// Playwright from the shared per-machine install. Throws with the install command when it's missing.
+export async function importPlaywright(home = PLAYWRIGHT_HOME) {
+  let resolved;
+  try {
+    resolved = createRequire(path.join(home, 'noop.js')).resolve('playwright');
+  } catch {
+    throw new Error(
+      `Playwright isn't installed in ${home}. Install it once for every project:\n  ${PLAYWRIGHT_INSTALL}`,
+    );
+  }
+  const mod = await import(pathToFileURL(resolved).href);
+  return mod.default ?? mod;
+}
 
 /* Where speech resumes after each silence, in seconds into the file. Cached by file identity: the editor asks often. */
 const onsetCache = new Map();
@@ -441,3 +760,18 @@ export function captionInputs(data, build) {
   }
   return out;
 }
+
+async function main([cmd, ...args]) {
+  if (cmd !== 'use' || args.length !== 3) throw new Error('usage: node project.mjs use <dir> <id> <file>');
+  const [dir, id, file] = args;
+  const p = loadProject(dir);
+  const scene = useVariant(p, id, file);
+  console.log(`${id}: scene is now ${p.rel(scene.file)} (raw ${p.rel(scene.raw)})`);
+}
+
+// Run as a script, not imported. Resolve symlinks: an installed skill may be linked.
+if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href)
+  main(process.argv.slice(2)).catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
