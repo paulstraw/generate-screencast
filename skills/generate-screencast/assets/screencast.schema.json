@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "screencast.schema.json",
+  "title": "generate-screencast project",
+  "description": "screencast.json: the intent for one screencast project. Machine state lives in build.json beside it.",
+  "type": "object",
+  "required": ["version", "slug", "title", "voice", "beats"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "Path or file:// URL of this schema, for editor autocomplete." },
+    "version": { "enum": [1] },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Names the project folder and the deliverables."
+    },
+    "title": { "type": "string" },
+    "out": {
+      "type": "string",
+      "description": "Deliverable path, absolute or project-relative. Default <slug>.mp4; the .srt and .script.md go beside it."
+    },
+    "size": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 16, "maximum": 7680 },
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[width, height]. Default [1920, 1080]; [1080, 1920] for portrait."
+    },
+    "voice": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "{ \"tts\": \"<edge-tts voice>\" } or { \"human\": true, \"normalize\": true }.",
+      "properties": {
+        "tts": { "type": "string", "description": "edge-tts voice name, e.g. en-US-AndrewNeural." },
+        "human": { "type": "boolean", "description": "Paul reads the VO himself (record-vo.mjs)." },
+        "normalize": { "type": "boolean", "description": "Two-pass loudnorm per VO clip (human VO)." }
+      }
+    },
+    "lang": {
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}([-_][A-Za-z0-9]+)*$",
+      "description": "Subtitle track language. Default: whisper's, else the voice's locale, else eng."
+    },
+    "captions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "burn": { "type": "boolean", "description": "Also burn the captions into the picture." } }
+    },
+    "spellings": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Human VO: whisper's spelling → the real one, applied to captions."
+    },
+    "camera": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Present when the human VO is recorded with the camera.",
+      "properties": {
+        "delay": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Seconds the camera's picture lags its sound (clap test)."
+        },
+        "bubble": { "$ref": "#/$defs/bubble" }
+      }
+    },
+    "beats": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/beat" } }
+  },
+  "$defs": {
+    "bubble": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "position": { "enum": ["top-left", "top-right", "bottom-left", "bottom-right"] },
+        "size": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 1,
+          "description": "Diameter as a fraction of the frame's short side."
+        },
+        "margin": { "type": "integer", "minimum": 0, "description": "Output pixels from the frame's edges." }
+      }
+    },
+    "beat": {
+      "type": "object",
+      "required": ["id", "title", "surface", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "Stable and unique; names every file for the beat."
+        },
+        "title": { "type": "string" },
+        "surface": { "enum": ["web", "storybook", "terminal", "macos", "ios", "android", "hybrid", "camera"] },
+        "text": { "type": "string", "description": "The approved words, real spelling: captions, script export." },
+        "say": { "type": "string", "description": "TTS input (phonetic spellings). Default: text." },
+        "cam": {
+          "enum": ["pip", "full", "off"],
+          "description": "Human VO with camera only. Default off; a camera surface is full."
+        },
+        "bubble": { "$ref": "#/$defs/bubble" },
+        "lead": { "type": "number", "minimum": 0, "description": "Seconds before the VO. Default 0.5." },
+        "tail": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Seconds after the VO. Default 0.5; 1.0 on the last beat."
+        },
+        "cut": {
+          "type": "number",
+          "description": "Seconds the picture boundary into this beat moves: negative = L cut, positive = J cut."
+        },
+        "captionPosition": { "enum": ["bottom", "top"] },
+        "skip": { "type": "boolean", "description": "Kept in the file, left out of the video." },
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["reshoot", "revo", "qa"] },
+              "note": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
