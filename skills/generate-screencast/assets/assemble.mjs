@@ -53,6 +53,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { renderCaptionFrames } from './caption-frames.mjs';
 import { iso3, language, toSrt, ttsCues, whisperCues } from './captions.mjs';
+import { placeCues } from './timeline.mjs';
 
 const manifestPath = process.argv[2];
 if (!manifestPath) {
@@ -107,20 +108,9 @@ const plans = m.scenes.map((s, i) => {
     cues = whisperCues(subs, label, m.spellings);
     whisperLang.push(language(subs));
   }
-  // edge-tts and whisper both report speech ~0.1–0.15s before it's audible
-  // (whisper puts a take's first word at 0, inside the trim pad): start each
-  // cue at a measured voice onset when one follows within 0.35s.
-  const heard = onsets(abs(s.vo));
-  cues = cues.map((c) => {
-    const o = heard.find((t) => t >= c.start - 0.02 && t <= c.start + 0.35 && t < c.end - 0.2);
-    return o === undefined ? c : { ...c, start: o };
-  });
-  // Linger: hold each cue 0.3s past its speech and at least 1.2s, into the gap
-  // before the next cue or the scene's tail, so short sentences stay readable.
-  cues = cues.map((c, k) => ({
-    start: 0.5 + c.start,
-    end: Math.min(0.5 + (cues[k + 1]?.start ?? target), Math.max(c.end + 0.3, c.start + 1.2) + 0.5, target),
-    text: c.text,
+  // Snap to measured voice onsets and linger (timeline.mjs), in clip time: the VO starts at 0.5s.
+  cues = placeCues(cues, onsets(abs(s.vo)), { voAt: 0.5, end: target }).map((c) => ({
+    ...c,
     position: s.captionPosition,
   }));
   return { s, target, cues };

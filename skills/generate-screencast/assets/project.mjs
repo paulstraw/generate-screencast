@@ -11,6 +11,8 @@
  *   p.voFile('save')        // absolute paths for every file a beat owns (relative on disk, in build.json)
  *   p.recordBuild('save', { vo: { file: p.voFile('save'), key: voKey(p.data, beat), duration: 3.41 } });
  *   p.clearFlags('save', ['revo']);
+ *   p.timeline()            // timeline.mjs's edit, with each beat's caption cues and voice onsets read from disk
+ *   loadTimeline(dir)       // the same, for a folder
  *
  *   import { validate } from './project.mjs';
  *   const errors = validate(JSON.parse(fs.readFileSync('screencast.json', 'utf8')));
@@ -25,9 +27,12 @@
  * else's edit. build.json has one writer class (the pipeline scripts); each write re-reads it, merges, and replaces it
  * atomically (temp file + rename), so a crash never leaves half a file and deleting it just means everything is stale.
  */
+import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ttsCues, whisperCues } from './captions.mjs';
+import { timeline } from './timeline.mjs';
 
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 const LANG = /^[A-Za-z]{2,3}([-_][A-Za-z0-9]+)*$/;
@@ -379,6 +384,10 @@ export function loadProject(dir) {
     // Removes a beat's `needs` flags of these kinds, as a fresh read-modify-write of screencast.json, so it neither
     // clobbers nor is blocked by an edit made since this project was loaded. The in-memory copy drops the same flags;
     // if the file had changed under it, its hash stays stale so a later save() still reports that conflict.
+    timeline() {
+      return timeline(data, build, captionInputs(data, build));
+    },
+
     clearFlags(id, kinds) {
       const drop = (beat) => {
         const kept = (beat.needs ?? []).filter((f) => !kinds.includes(f.kind));
@@ -398,4 +407,40 @@ export function loadProject(dir) {
     },
   };
   return p;
+}
+
+export const loadTimeline = (dir) => loadProject(dir).timeline();
+
+/* Where speech resumes after each silence, in seconds into the file. Cached by file identity: the editor asks often. */
+const onsetCache = new Map();
+export function voiceOnsets(file) {
+  const st = fs.statSync(file);
+  const id = `${file}:${st.size}:${st.mtimeMs}`;
+  if (!onsetCache.has(id)) {
+    const args = ['-hide_banner', '-i', file, '-af', 'silencedetect=noise=-40dB:d=0.08', '-f', 'null', '-'];
+    const r = spawnSync('ffmpeg', args, { encoding: 'utf8' });
+    if (r.error) throw new Error(`ffmpeg: ${r.error.message}`);
+    onsetCache.set(id, [...r.stderr.matchAll(/silence_end: ([\d.]+)/g)].map((x) => +x[1]));
+  }
+  return onsetCache.get(id);
+}
+
+/* timeline()'s caption inputs: per beat with a VO, its cues (captions.mjs) and voice onsets, or the error making them.
+ * A beat whose timing file doesn't exist yet is left out, which timeline() reports as stale. */
+function captionInputs(data, build) {
+  const out = {};
+  for (const b of data.beats.filter((x) => !x.skip)) {
+    const s = build.beats[b.id] ?? {};
+    if (!s.vo?.file || !fs.existsSync(s.vo.file)) continue;
+    const label = `beat "${b.id}"`;
+    const subs = data.voice.human ? s.txt?.file : (s.vo.subs ?? s.vo.file.replace(/\.[^./]+$/, '.srt'));
+    if (!subs || !fs.existsSync(subs)) continue;
+    try {
+      const cues = data.voice.human ? whisperCues(subs, label, data.spellings) : ttsCues(subs, b.text, label);
+      out[b.id] = { cues, onsets: voiceOnsets(s.vo.file) };
+    } catch (err) {
+      out[b.id] = { error: err.message.split('\n')[0].replace(`${label}: `, '') };
+    }
+  }
+  return out;
 }

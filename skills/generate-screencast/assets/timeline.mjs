@@ -4,10 +4,12 @@
  * never a second implementation.
  *
  *   import { timeline } from './timeline.mjs';
- *   const t = timeline(project, build);    // parsed screencast.json and build.json
+ *   const t = timeline(project, build, captions);   // parsed screencast.json and build.json; captions below
  *   t.total                                // seconds, a whole number of frames
  *   t.key                                  // hash of everything assembly consumes; changes ⇒ re-render
- *   t.beats[0]                             // { id, block, voAt, picture, frames, sceneWindow, mode, … , stale }
+ *   t.beats[0]                             // { id, block, voAt, picture, frames, sceneWindow, camWindow, mode, …,
+ *                                          //   cues, overlays, stale }
+ *   t.cues                                 // every cue in timeline time, in order: the .srt
  *
  * Audio is fixed: each non-skipped beat is a block of lead + VO + tail, back to back, and its VO plays at block
  * start + lead. Pictures move with cuts: the boundary into a beat is its block start + `cut`, so a negative cut is an
@@ -17,6 +19,18 @@
  * Every screen recording keeps HANDLE seconds of footage either side of its clock (scene time 0 to lead + VO + tail),
  * so cuts and lead/tail changes are edit-only while the picture window stays inside build.json's `scene.footage`;
  * past it the beat lists a `film` reason in `stale`.
+ *
+ * Camera beats (pip or full) map their picture span into the raw camera take: `camWindow` is take time, starting
+ * camera.delay later to put lips back on the words, and `camPad` the seconds of first/last frame to clone where the
+ * window runs off the take.
+ *
+ * Captions: `captions` maps beat id to { cues, onsets }: the beat's cues relative to its VO, from captions.mjs
+ * (ttsCues or whisperCues), and the measured voice onsets in the VO file (ffmpeg silencedetect); or to { error } when
+ * the cues couldn't be made. placeCues() snaps and lingers them onto the timeline. A beat's `cues` are its own
+ * narration (the .srt); its `overlays` are every cue piece drawn over its picture, clipped to the picture span and in
+ * its caption position, so a cue spanning a cut is burned into both clips. Without `captions` at all (pure edit
+ * tests) cues are empty and nothing is reported; with it, a beat missing from the map is stale. project.mjs's
+ * loadTimeline(dir) gathers the inputs.
  *
  * Pure and browser-safe (the editor imports it): no Node built-ins, callers pass in everything it reads.
  */
@@ -36,7 +50,26 @@ const signed = (t) => `${t < 0 ? '−' : '+'}${Math.abs(t).toFixed(2)}s`;
 const secs = (t) => `${t < 0 ? '−' : ''}${Math.abs(t).toFixed(2)}s`;
 const base = (file) => (typeof file === 'string' ? file.split(/[\\/]/).pop() : null);
 
-export function timeline(project, build = { version: 1, beats: {} }) {
+/*
+ * A beat's cues, relative to its VO, onto the timeline (VO playing at `voAt`, its block ending at `end`).
+ * edge-tts and whisper both report speech ~0.1–0.15s before it's audible (whisper puts a take's first word at 0,
+ * inside the trim pad), so each cue starts at a measured voice onset when one follows within 0.35s. Then each cue
+ * lingers 0.3s past its speech and at least 1.2s, into the gap before the next cue or the block's end, so short
+ * sentences stay readable.
+ */
+export function placeCues(cues, onsets = [], { voAt = 0, end = Infinity } = {}) {
+  const snapped = cues.map((c) => {
+    const o = onsets.find((t) => t >= c.start - 0.02 && t <= c.start + 0.35 && t < c.end - 0.2);
+    return o === undefined ? c : { ...c, start: o };
+  });
+  return snapped.map((c, k) => ({
+    start: us(voAt + c.start),
+    end: us(Math.min(voAt + (snapped[k + 1]?.start ?? Infinity), voAt + Math.max(c.end + 0.3, c.start + 1.2), end)),
+    text: c.text,
+  }));
+}
+
+export function timeline(project, build = { version: 1, beats: {} }, captions) {
   const beats = project.beats.filter((b) => !b.skip);
   const steps = (id) => build?.beats?.[id] ?? {};
 
@@ -76,6 +109,8 @@ export function timeline(project, build = { version: 1, beats: {} }) {
 
     // Scene time of timeline time x: the VO started at scene time scene.lead (the lead when filmed).
     let sceneWindow = null;
+    let camWindow = null;
+    let camPad = null;
     if (mode !== 'full') {
       const filmedLead = scene?.lead ?? lead;
       sceneWindow = picture.map((x) => us(x - voAt + filmedLead));
@@ -107,6 +142,29 @@ export function timeline(project, build = { version: 1, beats: {} }) {
       }
     }
 
+    // Camera-take time of timeline time x: the take's trim[0] is the VO's first sample, plus the capture lag.
+    if (mode !== 'off') {
+      const cam = steps(b.id).cam;
+      if (!Array.isArray(cam?.trim)) stale.push({ step: 'vo', reason: `no camera take for "${b.id}" yet` });
+      else {
+        const delay = project.camera?.delay ?? 0;
+        camWindow = picture.map((x) => us(cam.trim[0] + (x - voAt) + delay));
+        // The take's length is only known once record-vo records it; until then the far end can't be checked.
+        const length = typeof cam.duration === 'number' ? cam.duration : Infinity;
+        camPad = [us(Math.max(0, -camWindow[0])), us(Math.max(0, camWindow[1] - length))];
+      }
+    }
+
+    let cues = [];
+    if (captions) {
+      const c = captions[b.id];
+      const step = project.voice?.human ? 'transcribe' : 'vo';
+      if (c?.error) stale.push({ step, reason: `captions for "${b.id}": ${c.error}` });
+      else if (!c) {
+        if (hasVo) stale.push({ step, reason: `no caption timing for "${b.id}" yet` });
+      } else cues = placeCues(c.cues, c.onsets, { voAt, end: start + lead + D + tail });
+    }
+
     return {
       id: b.id,
       block: [us(start), us(start + lead + D + tail)],
@@ -114,12 +172,29 @@ export function timeline(project, build = { version: 1, beats: {} }) {
       picture,
       frames: [edges[i], edges[i + 1]],
       sceneWindow,
+      camWindow,
+      camPad,
       mode,
       bubble: mode === 'pip' ? { ...BUBBLE, ...project.camera?.bubble, ...b.bubble } : null,
       captionPosition: b.captionPosition ?? 'bottom',
+      cues,
       stale,
     };
   });
+
+  // Burn-in: every cue piece over each picture, so a cue crossing a cut is drawn in both clips for its part.
+  const all = out.flatMap((t) => t.cues);
+  for (const t of out) {
+    const [p0, p1] = t.picture;
+    t.overlays = all
+      .filter((c) => c.start < p1 - 1e-6 && c.end > p0 + 1e-6)
+      .map((c) => ({
+        start: us(Math.max(c.start, p0)),
+        end: us(Math.min(c.end, p1)),
+        text: c.text,
+        position: t.captionPosition,
+      }));
+  }
 
   // Everything assembly consumes: the edit above plus which recordings it cuts from and how they're voiced.
   const key = sha256(
@@ -146,7 +221,7 @@ export function timeline(project, build = { version: 1, beats: {} }) {
     }),
   );
 
-  return { total, key, beats: out };
+  return { total, key, cues: all, beats: out };
 }
 
 // SHA-256 of a string, hex. Hand-rolled because this module also runs in the browser, where crypto.subtle is async.
