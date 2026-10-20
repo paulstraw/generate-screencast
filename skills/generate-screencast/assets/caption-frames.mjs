@@ -3,16 +3,16 @@
  * for assemble.mjs to lay over each clip with ffmpeg's core `overlay` filter —
  * so burn-in works on any ffmpeg build, with or without libass or freetype.
  *
- *   const frames = await renderCaptionFrames(cues, { size: [W, H], dir, from });
+ *   const frames = await renderCaptionFrames(cues, { size: [W, H], dir });
  *   // → [{ png, x, y }] parallel to cues; each cue may carry position: 'top'
  *
  * Each PNG holds just the pill (plus its shadow), and x/y place it in the
  * W×H frame: bottom-center by default, clear of a portrait phone's tab and
- * home bars, or top-center. Playwright is resolved from `from` (the workdir),
- * where preflight installs it.
+ * home bars, or top-center. Playwright comes from the shared per-machine
+ * install (project.mjs's importPlaywright).
  */
-import { createRequire } from 'node:module';
 import path from 'node:path';
+import { importPlaywright } from './project.mjs';
 
 const page = ({ W, H, font, edge, side, position }) => `<!doctype html>
 <meta charset="utf-8" />
@@ -36,16 +36,9 @@ const page = ({ W, H, font, edge, side, position }) => `<!doctype html>
 </style>
 <div id="wrap"><div id="shot"><div id="pill"></div></div></div>`;
 
-export async function renderCaptionFrames(cues, { size: [W, H], dir, from }) {
-  let chromium;
-  try {
-    ({ chromium } = createRequire(path.join(from, 'noop.js'))('playwright'));
-  } catch {
-    throw new Error(
-      `"captions": "burn" renders captions with Playwright, which isn't installed in ${from}.\n` +
-        `  cd ${from} && npm init -y >/dev/null && npm i playwright && npx playwright install chromium`,
-    );
-  }
+export async function renderCaptionFrames(cues, { size: [W, H], dir }) {
+  if (!cues.length) return [];
+  const { chromium } = await importPlaywright();
   const portrait = H > W;
   const unit = Math.min(W, H);
   const font = Math.round(unit * 0.037);
