@@ -5,9 +5,8 @@ driver compiled from this skill — moves, clicks and types on the same `Clock`.
 from the logged click timeline.
 
 Nothing is copied into the project: `film.mjs` imports `<skill>/assets/project.mjs` and `native-helpers.mjs` by absolute
-path. Build the driver once per machine, beside the shared Playwright install (needs Xcode or the Command Line Tools):
-`swiftc -O <skill>/assets/mousectl.swift -o ~/.cache/generate-screencast/mousectl`, and pass that path to
-`startDriver` and `probePermissions` (both default to `./mousectl`).
+path. `startDriver` and `probePermissions` build the driver on first use (and again whenever `mousectl.swift` changes)
+into the shared cache beside Playwright, which needs Xcode or the Command Line Tools.
 
 ## Hands off
 
@@ -20,8 +19,9 @@ ends up in the take or derails it. Say clearly when they can have it back.
 Both are granted to the app hosting this session (iTerm, Terminal, Ghostty, VS Code, …).
 
 ```js
+import os from 'node:os';
 import { probePermissions } from '<skill>/assets/native-helpers.mjs';
-console.log(await probePermissions('/tmp', MOUSECTL)); // { frame, accessibility }; MOUSECTL = the built driver
+console.log(await probePermissions(os.tmpdir())); // { frame, accessibility }
 ```
 
 - **Screen Recording**: Look at `frame`. Real windows visible → granted. Wallpaper only, or no frame → denied: System
@@ -58,12 +58,11 @@ Rounded window corners show a sliver of wallpaper inside a rectangular crop; it'
 ## Recipe
 
 ```js
-import os from 'node:os';
 import { loadProject } from '<skill>/assets/project.mjs';
 import { activate, nativeScene, windowBounds, startScreenCapture, startDriver, sleep } from '<skill>/assets/native-helpers.mjs';
 
 const p = loadProject(import.meta.dirname);
-const d = await startDriver(`${os.homedir()}/.cache/generate-screencast/mousectl`);
+const d = await startDriver();
 try {
   await p.film({
     edit: nativeScene(p, async (b) => {

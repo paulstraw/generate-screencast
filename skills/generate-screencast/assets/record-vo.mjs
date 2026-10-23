@@ -99,7 +99,7 @@ async function main(argv) {
   if (!dir || dir.startsWith('-') || ids.some((a) => a.startsWith('-')))
     throw new Error('usage: node record-vo.mjs <dir> [ids…] [--device …] [--channel 0|1|mix] [--camera …] [--cam-delay s]');
 
-  const { loadProject, PLAYWRIGHT_HOME } = await import('./project.mjs');
+  const { loadProject, ensureBuilt } = await import('./project.mjs');
   const p = loadProject(dir);
   if (!p.data.voice.human) throw new Error('this project has a TTS voice; make its VO with tts.mjs');
   const camDelay = Number(camDelayArg ?? p.data.camera?.delay ?? 0);
@@ -117,16 +117,10 @@ async function main(argv) {
     throw new Error(`${needCam.join(', ')} ${needCam.length > 1 ? 'have' : 'has'} cam pip/full; pass --camera "<name>"`);
 
   fs.mkdirSync(path.dirname(p.rawVoFile('x')), { recursive: true });
-  const camrec = path.join(PLAYWRIGHT_HOME, 'camrec');
+  let camrec;
   if (camera) {
     fs.mkdirSync(path.dirname(p.camFile('x')), { recursive: true });
-    const src = path.join(import.meta.dirname, 'camrec.swift');
-    if (!fs.existsSync(camrec) || fs.statSync(camrec).mtimeMs < fs.statSync(src).mtimeMs) {
-      console.log('building camrec…');
-      fs.mkdirSync(PLAYWRIGHT_HOME, { recursive: true });
-      if (spawnSync('swiftc', ['-O', src, '-o', camrec], { stdio: 'inherit' }).status !== 0)
-        throw new Error('swiftc failed to build camrec');
-    }
+    camrec = ensureBuilt('camrec');
   }
 
   const cols = Math.min(process.stdout.columns || 80, 72);

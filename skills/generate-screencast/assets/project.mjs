@@ -46,6 +46,8 @@
  *
  *   node project.mjs use <dir> <id> <file>   // points a beat's scene at a post-processed variant (device frame,
  *                                            // ripples) of the same length; `raw` keeps the original
+ *   node project.mjs build mousectl|camrec   // compiles a native helper into the shared cache if it's missing or
+ *                                            // stale, and prints its path (ensureBuilt)
  *
  * Playwright and Chromium live once per machine in ~/.cache/generate-screencast (PLAYWRIGHT_INSTALL), never in the
  * project or the user's repo; importPlaywright() loads them from there.
@@ -735,6 +737,19 @@ export async function importPlaywright(home = PLAYWRIGHT_HOME) {
   return mod.default ?? mod;
 }
 
+// A helper binary compiled from <src>/<name>.swift into the shared cache, rebuilt whenever the source is newer.
+// Returns its path. Needs swiftc (Xcode or the Command Line Tools).
+export function ensureBuilt(name, { dir = PLAYWRIGHT_HOME, src = import.meta.dirname, log = console.log } = {}) {
+  const bin = path.join(dir, name);
+  const source = path.join(src, `${name}.swift`);
+  if (fs.existsSync(bin) && fs.statSync(bin).mtimeMs >= fs.statSync(source).mtimeMs) return bin;
+  log(`building ${name}…`);
+  fs.mkdirSync(dir, { recursive: true });
+  if (spawnSync('swiftc', ['-O', source, '-o', bin], { stdio: 'inherit' }).status !== 0)
+    throw new Error(`swiftc failed to build ${name}`);
+  return bin;
+}
+
 /* Where speech resumes after each silence, in seconds into the file. Cached by file identity: the editor asks often. */
 const onsetCache = new Map();
 export function voiceOnsets(file) {
@@ -770,7 +785,10 @@ export function captionInputs(data, build) {
 }
 
 async function main([cmd, ...args]) {
-  if (cmd !== 'use' || args.length !== 3) throw new Error('usage: node project.mjs use <dir> <id> <file>');
+  if (cmd === 'build' && args.length === 1 && ['mousectl', 'camrec'].includes(args[0]))
+    return console.log(ensureBuilt(args[0], { log: console.error }));
+  if (cmd !== 'use' || args.length !== 3)
+    throw new Error('usage: node project.mjs use <dir> <id> <file>\n       node project.mjs build mousectl|camrec');
   const [dir, id, file] = args;
   const p = loadProject(dir);
   const scene = useVariant(p, id, file);

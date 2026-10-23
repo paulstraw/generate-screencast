@@ -80,7 +80,7 @@ Detect everything the beats need and offer **one** `brew install …` (or equiva
 | ----------------------- | ----------------------------------------------------------------------------------- |
 | every video             | `ffmpeg`, `ffprobe`, `uvx` (for `edge-tts`), `node`                                 |
 | browser/terminal beats, burned-in captions | Playwright in `~/.cache/generate-screencast` (below)             |
-| macOS / iOS beats       | `swiftc` (builds `mousectl`); the permission probe in [references/macos.md](references/macos.md) |
+| macOS / iOS beats       | `swiftc` (`mousectl` builds itself on first use); the permission probe in [references/macos.md](references/macos.md) |
 | iOS beats               | `xcrun simctl`, a booted simulator                                                  |
 | Android beats           | `adb`, a running emulator                                                           |
 | human-read voiceover    | `sox`; Apple Silicon for `mlx-whisper` (via `uvx`)                                  |

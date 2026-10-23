@@ -34,6 +34,7 @@ import { spawn, execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Clock } from './film-helpers.mjs';
+import { ensureBuilt } from './project.mjs';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8' }).trim();
@@ -239,12 +240,12 @@ function captureHandle(proc, stopFn, meta) {
 }
 
 /*
- * Mouse/keyboard driver: a long-lived mousectl process (compile it once with
- * `swiftc -O mousectl.swift -o mousectl`). Every call resolves when the action
+ * Mouse/keyboard driver: a long-lived mousectl process (built from
+ * mousectl.swift into the shared cache on first use). Every call resolves when the action
  * has finished, so `await` + Clock marks stay exact. Clicks are logged into
  * `clicks` for the ripple overlay.
  */
-export async function startDriver(bin = './mousectl') {
+export async function startDriver(bin = ensureBuilt('mousectl')) {
   const proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'inherit'] });
   const waiting = [];
   let buf = '';
@@ -313,7 +314,7 @@ export function clicksToVideo(clicks, { stoppedAt, videoDuration, region, scale,
  * `frame` for the agent to look at, and must be deleted afterwards (it is a
  * full-screen grab of the user's desktop).
  */
-export async function probePermissions(tmpDir, bin = './mousectl') {
+export async function probePermissions(tmpDir, bin) {
   const frame = `${tmpDir}/probe.jpg`;
   try {
     execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'avfoundation', '-framerate', '30',

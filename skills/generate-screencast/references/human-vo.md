@@ -58,8 +58,8 @@ be `full`, because the truth rule still holds: an intro, an outro, a "here's why
 
 **Preflight**, before any take:
 
-1. Build the recorder and list devices: `swiftc -O <skill>/assets/camrec.swift -o ~/.cache/generate-screencast/camrec`
-   (`record-vo.mjs` builds it there too, when it's missing or older than its source), then
+1. Build the recorder and list devices: `node <skill>/assets/project.mjs build camrec` builds it into
+   `~/.cache/generate-screencast/camrec` if it's missing or older than its source (`record-vo.mjs` does the same), then
    `~/.cache/generate-screencast/camrec list`. It prints the Camera and Microphone permission status for the app running
    the terminal, each camera with the format it would record (read from the device, because capture cards and Continuity
    Camera only accept their own exact formats), and the mics. A camera flagged below 30fps stutters once assembly

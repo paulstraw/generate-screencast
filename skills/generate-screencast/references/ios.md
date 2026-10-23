@@ -20,12 +20,11 @@ burned in as ripples after framing.
 ## Recipe
 
 ```js
-import os from 'node:os';
 import { loadProject } from '<skill>/assets/project.mjs';
 import { activate, frontmostApp, nativeScene, simMapper, startSimRecording, startDriver, sleep } from '<skill>/assets/native-helpers.mjs';
 
 const p = loadProject(import.meta.dirname);
-const d = await startDriver(`${os.homedir()}/.cache/generate-screencast/mousectl`);
+const d = await startDriver();
 try {
   await p.film({
     open: nativeScene(p, async (b) => {

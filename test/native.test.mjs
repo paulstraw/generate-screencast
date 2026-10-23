@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { clicksToVideo, nativeScene, nativeTiming } from '../skills/generate-screencast/assets/native-helpers.mjs';
-import { loadProject, useVariant, voKey } from '../skills/generate-screencast/assets/project.mjs';
+import { ensureBuilt, loadProject, useVariant, voKey } from '../skills/generate-screencast/assets/project.mjs';
 import { gather, plan } from '../skills/generate-screencast/assets/status.mjs';
 import { makeVideo, needsFfmpeg, probeDuration, tempDir } from './helpers.mjs';
 
@@ -152,4 +152,28 @@ test('device-frame.mjs and ripples.mjs keep a scene\'s length, so project.mjs us
   // A variant that isn't the same length is refused.
   const short = makeVideo(path.join(dir, 'scenes/short.mp4'), 3);
   assert.throws(() => useVariant(p, 'app', short), /must match/);
+});
+
+const hasSwiftc = spawnSync('swiftc', ['--version'], { stdio: 'ignore' }).status === 0;
+const needsSwiftc = { skip: hasSwiftc ? false : 'swiftc not installed', timeout: 120_000 };
+
+test('ensureBuilt compiles a helper once, and again only when its source is newer', needsSwiftc, (t) => {
+  const src = tempDir(t);
+  const dir = path.join(tempDir(t), 'cache');
+  fs.writeFileSync(path.join(src, 'hello.swift'), 'print("hi")\n');
+  const built = [];
+  const log = (msg) => built.push(msg);
+
+  const bin = ensureBuilt('hello', { dir, src, log });
+  assert.equal(bin, path.join(dir, 'hello'));
+  assert.equal(execFileSync(bin, { encoding: 'utf8' }), 'hi\n');
+  assert.equal(ensureBuilt('hello', { dir, src, log }), bin);
+  assert.equal(built.length, 1, 'an up-to-date binary is not rebuilt');
+
+  fs.writeFileSync(path.join(src, 'hello.swift'), 'print("hello")\n');
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(path.join(src, 'hello.swift'), later, later);
+  ensureBuilt('hello', { dir, src, log });
+  assert.equal(built.length, 2);
+  assert.equal(execFileSync(bin, { encoding: 'utf8' }), 'hello\n');
 });
