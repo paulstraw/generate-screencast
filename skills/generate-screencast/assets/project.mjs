@@ -709,20 +709,28 @@ export function useVariant(p, id, file) {
 }
 
 export const PLAYWRIGHT_HOME = path.join(os.homedir(), '.cache', 'generate-screencast');
+// The Playwright the skill is tested with. Bump it deliberately; other versions still load, with a warning.
+export const PLAYWRIGHT_VERSION = '1.64.1';
 export const PLAYWRIGHT_INSTALL =
   'mkdir -p ~/.cache/generate-screencast && cd ~/.cache/generate-screencast && npm init -y >/dev/null && ' +
-  'npm i playwright && npx playwright install chromium';
+  `npm i playwright@${PLAYWRIGHT_VERSION} && npx playwright install chromium`;
 
 // Playwright from the shared per-machine install. Throws with the install command when it's missing.
 export async function importPlaywright(home = PLAYWRIGHT_HOME) {
+  const require = createRequire(path.join(home, 'noop.js'));
   let resolved;
   try {
-    resolved = createRequire(path.join(home, 'noop.js')).resolve('playwright');
+    resolved = require.resolve('playwright');
   } catch {
     throw new Error(
       `Playwright isn't installed in ${home}. Install it once for every project:\n  ${PLAYWRIGHT_INSTALL}`,
     );
   }
+  const { version } = require('playwright/package.json');
+  if (version !== PLAYWRIGHT_VERSION)
+    console.warn(
+      `Playwright ${version} is installed in ${home}; the skill is tested with ${PLAYWRIGHT_VERSION}. To match:\n  ${PLAYWRIGHT_INSTALL}`,
+    );
   const mod = await import(pathToFileURL(resolved).href);
   return mod.default ?? mod;
 }

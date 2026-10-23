@@ -6,6 +6,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   PLAYWRIGHT_HOME,
+  PLAYWRIGHT_VERSION,
   importPlaywright,
   loadProject,
   useVariant,
@@ -220,10 +221,28 @@ test('importPlaywright names the shared install when it is missing', async (t) =
   await assert.rejects(importPlaywright(tempDir(t)), (err) => {
     assert.match(
       err.message,
-      /Playwright isn't installed in .*\n {2}mkdir -p ~\/\.cache\/generate-screencast && .*npx playwright install chromium/,
+      /Playwright isn't installed in .*\n {2}mkdir -p ~\/\.cache\/generate-screencast && .*npm i playwright@\d+\.\d+\.\d+ && npx playwright install chromium/,
     );
     return true;
   });
+});
+
+test('importPlaywright loads another version with a warning naming the pinned one', async (t) => {
+  const home = tempDir(t);
+  const pkg = path.join(home, 'node_modules', 'playwright');
+  fs.mkdirSync(pkg, { recursive: true });
+  fs.writeFileSync(
+    path.join(pkg, 'package.json'),
+    JSON.stringify({ name: 'playwright', version: '1.0.0', main: 'index.js' }),
+  );
+  fs.writeFileSync(path.join(pkg, 'index.js'), 'module.exports = { chromium: "stub" };');
+  const warn = t.mock.method(console, 'warn', () => {});
+  const pw = await importPlaywright(home);
+  assert.equal(pw.chromium, 'stub');
+  assert.equal(warn.mock.callCount(), 1);
+  const [msg] = warn.mock.calls[0].arguments;
+  assert.ok(msg.startsWith(`Playwright 1.0.0 is installed in ${home}; the skill is tested with ${PLAYWRIGHT_VERSION}.`));
+  assert.ok(msg.includes(`npm i playwright@${PLAYWRIGHT_VERSION} && npx playwright install chromium`));
 });
 
 // --- A real headless scene -------------------------------------------------------------------------------------------

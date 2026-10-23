@@ -86,11 +86,14 @@ Detect everything the beats need and offer **one** `brew install …` (or equiva
 | human-read voiceover    | `sox`; Apple Silicon for `mlx-whisper` (via `uvx`)                                  |
 | camera (human VO only)  | `swiftc`; Camera permission, device and framing via `camrec` ([references/human-vo.md](references/human-vo.md#camera)) |
 
-Playwright and Chromium install once per machine into a shared cache, never into the project or the user's repo, so no
-lockfile is touched. `importPlaywright()` (from `project.mjs`) loads them from there. If it isn't installed yet:
+Playwright (pinned to `PLAYWRIGHT_VERSION` in `project.mjs`) and Chromium install once per machine into a shared
+cache that every project reuses, never into the project or the user's repo, so no lockfile is touched. The skill keeps
+its own copy on purpose rather than using one the project already has. `importPlaywright()` (from `project.mjs`) loads
+it, and warns if the installed version differs from the pinned one. Check for it quietly; mention installing only when
+it's actually missing:
 
 ```bash
-mkdir -p ~/.cache/generate-screencast && cd ~/.cache/generate-screencast && npm init -y >/dev/null && npm i playwright && npx playwright install chromium
+mkdir -p ~/.cache/generate-screencast && cd ~/.cache/generate-screencast && npm init -y >/dev/null && npm i playwright@1.64.1 && npx playwright install chromium
 ```
 
 Burn-in renders its captions with that Chromium, so an all-native video (macOS, iOS, Android) needs it too when the user

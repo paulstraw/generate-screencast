@@ -56,9 +56,11 @@ Then ask your agent for a video: _"make a 45-second walkthrough of the signup fl
   anything.
 - `ffmpeg`, Node.js, and [`uv`](https://docs.astral.sh/uv/) (the narration runs `uvx edge-tts`). The agent checks for
   these and offers to install whatever is missing.
-- Playwright and Chromium install once per machine into `~/.cache/generate-screencast/` (about 150MB with Playwright's
-  browser cache), never into your project, so no lockfile is touched. Burned-in captions need them too, so a video made
-  only of native scenes (macOS, iOS, Android) installs them when you ask for burn-in.
+- Playwright (pinned) and Chromium install **once per machine** into `~/.cache/generate-screencast/` (about 150MB with
+  Playwright's browser cache), and every project reuses them after that. The skill keeps its own copy on purpose, so it
+  never touches your project's dependencies or lockfile; if the folder is ever cleared, it prints the one-line reinstall
+  command. Burned-in captions need it too, so a video made only of native scenes (macOS, iOS, Android) installs it when
+  you ask for burn-in.
 - **macOS apps and iOS:** macOS, Xcode Command Line Tools (to compile the input driver), and Screen Recording and
   Accessibility permission for the terminal or editor running your agent. iOS also needs Xcode and a simulator.
 - **Android:** the Android SDK (`adb`, `emulator`) and an emulator.
