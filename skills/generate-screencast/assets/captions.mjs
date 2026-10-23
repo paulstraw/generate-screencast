@@ -97,7 +97,7 @@ export const language = (j) => JSON.parse(fs.readFileSync(j, 'utf8')).language;
 
 /* Replaces whisper's spelling of terms, matching whole words case-insensitively
  * and ignoring punctuation; a multi-word key merges its words into one. */
-function respell(words, spellings) {
+export function respell(words, spellings) {
   const norm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
   const keys = Object.entries(spellings).map(([k, v]) => [k.split(/\s+/).map(norm), v]);
   const out = [];

@@ -23,24 +23,28 @@ system's own **show touches** dots are drawn into the framebuffer — no post-pr
 ## Recipe
 
 ```js
-import { Clock } from './film-helpers.mjs';
-import { startAndroidRecording, tap, swipe, androidText, sleep } from './native-helpers.mjs';
+import { loadProject } from '<skill>/assets/project.mjs';
+import { nativeScene, startAndroidRecording, tap, androidText } from '<skill>/assets/native-helpers.mjs';
 
-const cap = startAndroidRecording();   // also turns on show_touches
-await sleep(800);
-const clock = new Clock();
-tap(540, 1200);
-await clock.until(1800);
-androidText('hello world');
-await clock.until(SCENE_MS);
-await cap.stop('scenes/s3.mp4');
+const p = loadProject(import.meta.dirname);
+await p.film({
+  compose: nativeScene(p, async (b) => {
+    const cap = startAndroidRecording(); // also turns on show_touches
+    const clock = await b.ready(cap);
+    await clock.until(b.at('Tap'));
+    tap(540, 1200);
+    await clock.until(b.at('type'));
+    androidText('hello world');
+  }),
+});
 ```
 
 `adb shell input` calls take ~100–300ms each; they're synchronous, so marks stay absolute deadlines. `screenrecord` only
-writes frames when the screen changes; `stop(out)` re-times the file from the real start to the real stop, so
-trim-from-the-end stays aligned. It caps at 180s per file — one scene per recording keeps far under it. The tap's own
+writes frames when the screen changes; `stop()` re-times the file from the real start to the real stop, so the
+end-aligned scene timing holds. It caps at 180s per file — one scene per recording keeps far under it. The tap's own
 Material ripple plus show-touches is the touch indicator; no `ripples.mjs` pass. Turn `show_touches` back off at cleanup
 (`adb shell settings put system show_touches 0`).
 
-Framing: `node device-frame.mjs scenes/s3.mp4 scenes/s3.framed.mp4` for 16:9 (add `--height 820 --top 30` with
-burned-in captions), or portrait throughout (see [ios.md](ios.md)).
+Framing for 16:9: `node <skill>/assets/device-frame.mjs scenes/compose.mp4 scenes/compose.framed.mp4` (add
+`--height 820 --top 30` with burned-in captions), then `node <skill>/assets/project.mjs use . compose
+scenes/compose.framed.mp4`. Or portrait throughout (see [ios.md](ios.md)).

@@ -1,10 +1,9 @@
 /*
- * Browser filming helpers. Location-agnostic: the per-video film script
- * imports playwright itself and passes `browser` in, so nothing here
- * hardcodes a machine path.
+ * Browser choreography helpers: a fake cursor (Playwright's real one isn't
+ * recorded), smooth glides, clicks with ripples, and the Clock that schedules
+ * every action against scene-time marks. Recording itself is project.mjs's
+ * p.browserScene(), which uses CURSOR_INIT and Clock from here.
  */
-import fs from 'node:fs';
-import path from 'node:path';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -83,37 +82,12 @@ export class Clock {
     this.t0 = Date.now();
   }
   async until(ms) {
-    const d = this.t0 + ms - Date.now();
-    if (d > 0) await sleep(d);
-    else if (d < -400) console.warn(`clock overrun ${-d}ms at mark ${ms}`);
-  }
-}
-
-/*
- * One recording context per scene: recording starts at context creation, so
- * load/settle noise sits at the front and assembly trims from the end.
- * Returns a record(name, fn) that honors a CLI scene filter (argv) so single
- * scenes can be re-shot cheaply.
- */
-export function makeRecorder(browser, scenesDir, contextOptions = {}) {
-  fs.mkdirSync(scenesDir, { recursive: true });
-  const only = process.argv.slice(2);
-  return async function record(name, fn) {
-    if (only.length && !only.includes(name)) return;
-    const ctx = await browser.newContext({
-      ...contextOptions,
-      viewport: { width: 1920, height: 1080 },
-      recordVideo: { dir: scenesDir, size: { width: 1920, height: 1080 } },
-    });
-    const page = await ctx.newPage();
-    await page.addInitScript(CURSOR_INIT);
-    try {
-      await fn(page);
-    } finally {
-      const video = page.video();
-      await ctx.close();
-      fs.renameSync(await video.path(), path.join(scenesDir, `${name}.webm`));
+    let d = this.t0 + ms - Date.now();
+    if (d < -400) console.warn(`clock overrun ${-d}ms at mark ${ms}`);
+    // setTimeout can fire a millisecond early by Date.now(); never return before the mark.
+    while (d > 0) {
+      await sleep(d);
+      d = this.t0 + ms - Date.now();
     }
-    console.log(`scene ${name} recorded`);
-  };
+  }
 }

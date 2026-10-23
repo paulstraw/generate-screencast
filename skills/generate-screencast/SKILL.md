@@ -8,13 +8,15 @@ description:
 
 # Generate a screencast
 
-Script → per-beat voiceover, TTS or the user's own voice (its measured durations drive every scene length) → scenes filmed
-on a **clock** from real running surfaces → QA → ffmpeg assembly. Working files live in a **workdir**: a `screencast/`
-folder in the session scratchpad if your harness provides one, otherwise in a fresh `mktemp -d`. Only the deliverables
-leave it.
+Script → per-beat voiceover, TTS or the user's own voice (its measured durations drive every scene length) → scenes
+filmed on a **clock** from real running surfaces → QA → ffmpeg assembly. Each video is a **project**: one folder whose
+`screencast.json` is the single source of truth for every beat (script, voice, surface, camera, captions, edit), with
+machine state beside it in `build.json`. `status.mjs` compares the two and says what to rebuild, so a first build and a
+later refresh are the same loop, and the user can adjust the edit in a browser editor without you.
 
-`<skill>` below means this skill's directory. QA depends on looking at frames, so this skill needs an agent that can
-view images; macOS, iOS and the native helpers need macOS.
+`<skill>` below means this skill's directory; every script is in `<skill>/assets/` and prints usage in its header. QA
+depends on looking at frames, so this skill needs an agent that can view images; macOS, iOS and the native helpers need
+macOS.
 
 ## 1. Shape the video
 
@@ -22,12 +24,14 @@ Interview the user, or confirm what's already specified. Nothing is produced unt
 
 - **Subject and audience** — what should the viewer understand or believe when it ends?
 - **Beats** — one idea per ~10s beat; ~150 words ≈ 55s of narration. 30–90s is the sweet spot. For each beat, name its
-  **surface**: browser, Storybook, terminal, macOS app, iOS Simulator, Android emulator.
-- **Deliverable** — default `~/Downloads/<slug>-<YYYY-MM-DD>.mp4`, plus the approved script beside it as
-  `<slug>-<YYYY-MM-DD>.script.md`. Offer a repo path (e.g. `docs/<slug>.mp4`) when the video belongs to the project.
-- **Captions** — always made: `<slug>-<YYYY-MM-DD>.srt` beside the video and a subtitle track inside it that viewers can
-  switch on. Ask whether to also **burn them in**. That's worth it wherever video autoplays muted (Slack, LinkedIn,
-  social feeds).
+  **surface**: web, Storybook, terminal, macOS app, iOS Simulator, Android emulator (or camera-only, below).
+- **Where it lives** — ask **"~/Downloads, or somewhere else?"** and make the project folder `<that>/<slug>/`. Every
+  file of the video lives in it; the deliverables `<slug>.mp4`, `.srt` and `.script.md` too, unless `"out"` points
+  elsewhere. A folder inside a repo is fine when the video belongs to it: gitignore `vo/ cam/ scenes/ qa/ assembly/`
+  there (or ask), since raw camera takes are private.
+- **Captions** — always made: the `.srt` beside the video and a subtitle track inside it that viewers can switch on.
+  Ask whether to also **burn them in** (`"captions": { "burn": true }`). That's worth it wherever video autoplays muted
+  (Slack, LinkedIn, social feeds).
 - **Voice** — default `en-US-AndrewNeural`. Offer another voice or locale when the audience calls for it
   (`uvx edge-tts --list-voices`). When the user narrates in their own voice, load
   [references/human-vo.md](references/human-vo.md): it replaces §3. Then ask whether they want their camera in the
@@ -41,8 +45,32 @@ an enumeration land.
 
 - Footage that doesn't exist yet (a page, a flow, a state) is built for real. In the user's project: propose the change,
   get approval, and pass that project's own checks (its CLAUDE.md/AGENTS.md, tests, lint). For a purely illustrative beat,
-  a throwaway page in the workdir is fine.
+  a throwaway page in the project folder is fine (serve it, e.g. `python3 -m http.server`; `file://` blocks modules).
 - Terminal footage is curated real output: run the command, keep the honest lines, drop noise. Never invent output.
+
+The user approves the script as prose in conversation, never as JSON. Once they have, write `screencast.json`
+(`<skill>/assets/screencast.schema.json` documents every field; point `"$schema"` at it for editor autocomplete):
+
+```json
+{
+  "$schema": "file://<skill>/assets/screencast.schema.json",
+  "version": 1,
+  "slug": "drafts-that-sync",
+  "title": "Drafts that sync",
+  "voice": { "tts": "en-US-AndrewNeural" },
+  "captions": { "burn": false },
+  "beats": [
+    { "id": "save", "title": "Saving syncs", "surface": "web", "text": "Hit Save and it syncs everywhere." }
+  ]
+}
+```
+
+Beat ids (`^[a-z0-9][a-z0-9-]*$`) are stable and name every file the beat owns; reordering is reordering the array.
+`text` is the approved wording, used for captions and the exported script. Spell awkward tokens phonetically in `say`
+("pnpm" → "P N P M"), TTS input only, and keep its sentence ends where `text` has them (TTS timing is matched to `text`
+sentence by sentence). Optional per beat: `lead`/`tail` (seconds around the VO, default 0.5, 1.0 on the last beat's
+tail), `cut` (§4), `captionPosition: "top"`, `cam`, `bubble`, `skip`. `loadProject` validates on every load and names
+the bad path (`beats[2].cam: must be pip | full | off`).
 
 ## 2. Preflight
 
@@ -51,21 +79,25 @@ Detect everything the beats need and offer **one** `brew install …` (or equiva
 | Need                    | Check                                                                               |
 | ----------------------- | ----------------------------------------------------------------------------------- |
 | every video             | `ffmpeg`, `ffprobe`, `uvx` (for `edge-tts`), `node`                                 |
-| browser/terminal beats, burned-in captions | Playwright in the workdir (below)                                |
-| macOS / iOS beats       | `swiftc` (builds `mousectl`); the permission probe in [references/macos.md](references/macos.md) |
+| browser/terminal beats, burned-in captions | Playwright in `~/.cache/generate-screencast` (below)             |
+| macOS / iOS beats       | `swiftc` (`mousectl` builds itself on first use); the permission probe in [references/macos.md](references/macos.md) |
 | iOS beats               | `xcrun simctl`, a booted simulator                                                  |
 | Android beats           | `adb`, a running emulator                                                           |
 | human-read voiceover    | `sox`; Apple Silicon for `mlx-whisper` (via `uvx`)                                  |
 | camera (human VO only)  | `swiftc`; Camera permission, device and framing via `camrec` ([references/human-vo.md](references/human-vo.md#camera)) |
 
-Playwright always installs into the workdir, never the project, so the project's lockfile is never touched:
+Playwright (pinned to `PLAYWRIGHT_VERSION` in `project.mjs`) and Chromium install once per machine into a shared
+cache that every project reuses, never into the project or the user's repo, so no lockfile is touched. The skill keeps
+its own copy on purpose rather than using one the project already has. `importPlaywright()` (from `project.mjs`) loads
+it, and warns if the installed version differs from the pinned one. Check for it quietly; mention installing only when
+it's actually missing:
 
 ```bash
-cd <workdir> && npm init -y >/dev/null && npm i playwright && npx playwright install chromium
+mkdir -p ~/.cache/generate-screencast && cd ~/.cache/generate-screencast && npm init -y >/dev/null && npm i playwright@1.64.1 && npx playwright install chromium
 ```
 
 Burn-in renders its captions with that Chromium, so an all-native video (macOS, iOS, Android) needs it too when the user
-wants captions burned in: about 150MB, kept in the workdir and Playwright's cache, nothing installed system-wide.
+wants captions burned in.
 
 Then load the reference for every surface the script uses — each holds the recipe and the hard-won gotchas:
 
@@ -79,51 +111,72 @@ Then load the reference for every surface the script uses — each holds the rec
 
 Done when every tool is present, every needed permission is granted, and every surface to be filmed is running.
 
-## 3. Voiceover
+## 3–6. The build loop
 
-For a human-read voiceover, follow [references/human-vo.md](references/human-vo.md) instead.
+Run `node <skill>/assets/status.mjs <dir>` and do what it says, in its order; run it again after each step. It lists,
+per beat, the steps needed (`vo` → `transcribe` → `film` → `qa`, then `assemble`) with the reason for each ("text
+changed since the VO", "cut −2.1s exceeds the 1.5s handle"). A step implies the later ones for its beat. A new project
+is simply everything stale. The `needs` flags in `screencast.json` (`reshoot`, `revo`, `qa`, each with a note) are for
+judgment calls code can't see; the step that satisfies one clears it.
 
-- One clip per beat:
-  `uvx edge-tts --voice <voice> --text "…" --write-media vo/beatN.mp3 --write-subtitles vo/beatN.srt`. It's a free
-  online service that occasionally hangs: wrap each call in a timeout and retry
-  (`perl -e 'alarm 30; exec @ARGV' uvx edge-tts …`).
-- Spell awkward tokens phonetically for TTS input only ("pnpm" → "P N P M"); the saved script keeps the real spelling,
-  and so do the captions.
-- `ffprobe` each clip. Scene length = 0.5s lead + VO + 0.5s tail (1.0s tail on the final scene).
-- `vo/beatN.srt` holds one cue per sentence. Assembly takes only its **timing**: each caption's text comes from the
-  matching sentence of the approved script, so phonetic input never reaches the screen. The two must have the same
-  sentence count, or assembly stops and names the beat. Don't let a phonetic spelling add or remove a sentence end
-  ("P.N.P.M." would).
-- When a cut or action must land on a spoken word, interpolate within a sentence of `vo/beatN.srt` by word count.
-  Word-level events are unreliable in the CLI.
+### 3. Voiceover
 
-Done when every beat has a clip and a computed scene length.
+`node <skill>/assets/tts.mjs <dir>` makes every stale beat's VO (`vo/<id>.mp3` + `vo/<id>.srt`), with a timeout and
+retries, checks the `.srt` splits into the same sentences as `text` (it stops and names the beat if not; usually a `say`
+that added or dropped a sentence end, like "P.N.P.M."), and records the clip and its duration. Each beat's scene length
+is lead + VO + tail. For a human-read voiceover, follow [references/human-vo.md](references/human-vo.md): `record-vo.mjs`
+then `transcribe.mjs`.
 
-## 4. Film
+### 4. Film
 
-Write one `film.mjs` in the workdir, one recorded scene per beat, every action scheduled on a `Clock` (from
-`<skill>/assets/film-helpers.mjs`) against marks derived from the VO timing. Scenes record to `scenes/<name>.(webm|mp4)`
-and accept a scene-name argv filter so single scenes can be re-shot (`node film.mjs s3`).
+Write one `film.mjs` in the project folder: choreography only, one scene per beat id, every action scheduled on the
+beat's `Clock` at marks from `b.at('Save')` (scene ms of that word in the VO) or `b.at(2)` (sentence 2). `p.film()`
+films only the ids given on argv (`node film.mjs save`) and records each scene in `build.json`. The pattern, with
+`setCur`/`glide`/`clickHere` from `<skill>/assets/film-helpers.mjs`, is in the `project.mjs` header; native surfaces
+wrap their recorders with `nativeScene` from `native-helpers.mjs` (see their references).
+
+```js
+const p = loadProject(import.meta.dirname);
+await p.film({
+  save: p.browserScene(browser, async (page, b) => {
+    await page.goto(URL, { waitUntil: 'networkidle' });
+    const clock = await b.ready(); // screen settled → scene time 0
+    await clock.until(b.at('Save'));
+    await glide(page, x, y, 700);
+  }),
+});
+```
 
 **Recon first**: screenshot every screen you plan to film and look at the image before writing choreography. What a screen
 looks like, and where its controls sit, is never safe to assume. Reuse existing state before generating new state: a
 project's prior dev sessions, seeded accounts or saved data often already hold every state the beats need, more cleanly
 than a fresh nondeterministic run would.
 
-Each recording starts early and ends exactly when its clock runs out — load and settle noise sits at the front and is
-trimmed away in assembly. So clock marks are scene time: start the clock when the screen is ready, end it at
-`SCENE_MS`, and the VO begins at 500ms.
+Call `b.ready()` only once the screen is settled: that's scene time 0, and the VO starts at the beat's lead. Every
+recording also keeps a **handle** of 1.5s of the ready screen before 0 and of the final state after the scene ends, so
+lead, tail and cuts can move later without a re-shoot. Leave the final state on screen; don't navigate away at the end.
+
+**Cuts.** By default each beat's picture starts where its block (lead + VO + tail) does. `cut` on a beat moves the
+picture boundary into it while the audio stays put: negative is an **L cut** (this beat's screen arrives while the
+previous narration finishes), positive a **J cut** (its narration starts over the previous screen). Use them sparingly,
+to get a slow screen up early or let a sentence bridge two beats. Beyond 1.5s either way, `status` asks for a re-shoot.
+The truth rule applies to the overlap: the words heard over the other beat's picture must not point at the screen
+("Next, …", "and that's it"), so put the boundary where the narration is non-referential.
 
 Native beats (macOS, iOS) drive the user's real mouse and keyboard: tell them to keep hands off until you say you're
 done, and tell them when they can have the machine back.
 
-## 5. QA — non-negotiable
+Post-process where a surface needs it (`device-frame.mjs` for framed mobile, with `--height 820 --top 30` when burning
+in captions; `ripples.mjs` for macOS/iOS clicks; see their references), then point the beat at the variant:
+`node <skill>/assets/project.mjs use <dir> <id> <file>`.
 
-Extract frames across every scene's trim window and look at them. `<skill>/assets/qa-grid.sh` tiles a scene's frames at
-given scene times (VO marks included) into one image, mapping them into the raw recording the way assembly trims it.
-Check, at each VO moment:
+### 5. QA — non-negotiable
 
-- the thing being narrated is on screen (truth rule);
+For every beat `status` lists for `qa`, run `node <skill>/assets/qa-grid.mjs <dir> <id> [scene times…]` and **look at**
+the image it writes (`qa/<id>.png`). Pass the scene times (seconds) of every VO moment you narrate; it adds the picture's
+first and last frames, the VO start and the middle of any L/J overlap by itself. Check, at each:
+
+- the thing being narrated is on screen (truth rule), including inside every overlap;
 - the cursor or touch indicator is visible where action happens; mode or state flips happened;
 - nothing private or stray is in frame — notifications, other apps, personal tabs, names, tokens, the menu-bar clock.
 
@@ -131,57 +184,53 @@ With the camera on, also check that the bubble never covers the thing being narr
 privacy check for the room (what's behind the user, other people, other screens), and spot-check lip sync on at least
 one beat ([references/human-vo.md](references/human-vo.md#camera)).
 
-With burn-in, captions only exist after assembly, so check them then, with them visible: run `qa-grid.sh` on
-`assembly/clipN.mp4` instead of the raw recording (the same scene times map 1:1). At each VO moment, check that:
+With burn-in or a camera, the frames only exist composited: run `node <skill>/assets/assemble.mjs <dir> --force` first,
+and the grid is taken from that render (once every beat's QA is recorded, that render counts as the final one). Then
+also check that:
 
-- no caption covers the thing being narrated (truth rule). Move that scene's captions with `"captionPosition": "top"`,
+- no caption covers the thing being narrated (truth rule). Move that beat's captions with `"captionPosition": "top"`,
   or re-frame;
-- no cue is too brief to read. Assembly prints any cue under ~1s or over ~20 characters a second as `tooFast`; tighten
-  that beat's script or let it breathe.
+- no cue is too brief to read. Assembly reports any cue under ~1s or over ~20 characters a second as `tooFast`; tighten
+  that beat's `text` or give it more tail.
 
-Re-shoot failing scenes. Done when every frame you checked passes.
+Re-shoot failing beats (`node film.mjs <id>`). When a beat's grid passes, record it:
+`node <skill>/assets/status.mjs <dir> --qa <id> [--note "…"]`. That stores a hash of what you looked at, so any later
+change to the beat's recording or its place in the edit lists it for QA again.
 
-## 6. Assemble
+### 6. Assemble
 
-Post-process first where a surface needs it (`device-frame.mjs` for framed mobile, with `--height 820 --top 30` when
-burning in captions; `ripples.mjs` for macOS/iOS clicks — see their references), then write a manifest and run `<skill>/assets/assemble.mjs`:
+`node <skill>/assets/assemble.mjs <dir>` refuses while any beat needs an earlier step (`--force` renders anyway and
+says what's stale). It renders from the same timeline the editor previews: each VO at its fixed offset, each picture cut
+from its recording by the beat's scene window (L/J cuts included), camera bubble or full-frame take where set, and
+captions as the `.srt` beside the video and a `mov_text` track in it (burned in too with `captions.burn`). It writes
+`<slug>.script.md` and records the render. It prints per beat the picture span, scene window and VO offset, the
+`tooFast` cues, and loudness (healthy: mean −18…−26 dB, max < −1 dB). A human-read voiceover sets
+`"voice": { "human": true, "normalize": true }` and `"spellings"` for anything whisper misspells.
 
-```json
-{
-  "out": "~/Downloads/<slug>-<date>.mp4 (absolute)",
-  "voice": "en-US-AndrewNeural",
-  "scenes": [{ "video": "scenes/s1.webm", "vo": "vo/beat1.mp3", "text": "Beat 1 of the approved script, verbatim." }]
-}
+Spot-check frames at every beat boundary in the final file. For a human-read voiceover, the user also listens to the
+final file once and confirms it sounds clean: frames check the picture, and only a human ear checks the audio.
+
+## 7. Hand over, then adjust
+
+Hand the video over with its path (send the file itself if your harness can), and offer the editor:
+
+```bash
+node <skill>/assets/editor.mjs <dir>
 ```
 
-It trims each recording to its **last** 0.5 + VO + 0.5s (1.0s tail on the final scene) — the 0.5s lead is a static hold,
-so ±0.3s drift is invisible — concatenates, places each VO at its clip's actual start + 0.5s, muxes with faststart, and
-prints per-scene timings plus loudness (healthy: mean −18…−26 dB, max < −1 dB). It fails loudly if a recording is shorter
-than its scene. Add `"size": [1080, 1920]` for portrait, and `"normalize": true` for a human-read voiceover (two-pass
-loudnorm on each clip before the mix, so the finished track needs no dynamic processing). Camera beats add `cam`,
-`camTrim` and `camMode` per scene (see [references/human-vo.md](references/human-vo.md#camera)).
+"Open it to adjust cuts and trims or flag beats; tell me when you're done." In it the user can drag cuts and lead/tail
+within the handles, reorder and skip beats, set camera and caption placement, edit `text`/`say`, flag beats `reshoot`,
+`revo` or `qa` with a note, and render. Adding beats, VO takes and filming stay with you. When they say "update it":
+run the build loop again (`status`, execute, re-QA, re-render) and summarise what changed.
 
-Captions come out of the same run: `<out>.srt` beside the video and a `mov_text` track in it, with video and audio
-still stream-copied. Each beat's cues are shifted by its VO offset and start on the voice's measured onset. Each cue has
-at most 2 lines of 42 characters.
+## Refreshing a video later
 
-- **Caption source per scene.** For TTS, set `"text"` to the beat's approved script. The timing is read from
-  `vo/beatN.srt` (or `"subs"`). For a human-read voiceover, leave `"text"` out: cues come from the whisper words in
-  `vo/txt/beatN.json` (or `"subs"`), and `"spellings": { "lock file": "lockfile" }` fixes any term whisper got wrong.
-- **Language tag.** It's taken from whisper's detected language, then `"voice"`'s locale, then `eng`. Set `"lang"` to
-  override it.
-- **Burn-in.** Add `"captions": "burn"` to draw them into the picture too. The overlay happens inside the per-clip
-  encode, with no extra pass, and it uses no libass, so any ffmpeg works. Captions sit bottom-center: above the tab
-  and home bars in portrait, and in the band `device-frame.mjs --height 820 --top 30` leaves below a framed phone.
-  Set `"captionPosition": "top"` on a scene whose narrated thing sits at the bottom, such as a terminal prompt.
-
-Write the `.script.md` beside the video (the `.srt` is already there), then spot-check frames at beat boundaries in the final file. For a human-read
-voiceover, the user also listens to the final file once and confirms it sounds clean: frames check the picture, and only
-a human ear checks the audio.
+Ask the user for the project folder, read `screencast.json`, run `status`, and preflight the surfaces. Provenance can't
+see the app, so recon every beat's screen against its last QA grid and flag any that changed:
+`{ "kind": "reshoot", "note": "the toolbar moved" }` in its `needs`. Then run the build loop.
 
 ## Cleanup
 
 Leave the user's dev servers, simulators and emulators running if they were running before; stop the ones you started.
 Revert any device setting you changed (show-touches, bezels, Do Not Disturb reminder). Delete scaffolds that existed only
-for footage. In a git repo, `git status` ends clean apart from intended deliverables. Hand the video over with its path,
-and send the file itself if your harness can.
+for footage. In a git repo, `git status` ends clean apart from intended deliverables.

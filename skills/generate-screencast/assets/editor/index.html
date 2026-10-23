@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Screencast editor</title>
+    <link rel="stylesheet" href="/editor.css" />
+  </head>
+  <body>
+    <header id="top">
+      <div>
+        <h1 id="title">Loading…</h1>
+        <div id="summary"></div>
+      </div>
+      <div id="render-status"></div>
+    </header>
+    <div id="error" hidden></div>
+    <section id="controls">
+      <div id="settings">
+        <label id="set-voice-tts">Voice <input id="set-voice" type="text" spellcheck="false" /></label>
+        <label id="set-voice-human" hidden><input id="set-normalize" type="checkbox" /> normalize loudness</label>
+        <label
+          >Size <input id="set-w" class="num" type="number" min="16" max="7680" step="2" /> ×
+          <input id="set-h" class="num" type="number" min="16" max="7680" step="2"
+        /></label>
+        <label><input id="set-burn" type="checkbox" /> burn in captions</label>
+      </div>
+      <div id="actions">
+        <span id="save-status"></span>
+        <button id="save" type="button" title="Save screencast.json (⌘S)" disabled>Save</button>
+        <button id="render" type="button">Render</button>
+      </div>
+    </section>
+    <div id="notice" hidden></div>
+
+    <section id="viewer">
+      <div id="frame"><div id="stage"></div></div>
+      <div id="transport">
+        <button id="play" type="button" title="Play / pause (space)">Play</button>
+        <span id="time">0:00.00 / 0:00.00</span>
+        <span id="hint">space play/pause · ←/→ one frame · shift+←/→ one second · drag a cut or lead/tail edge (alt: past the handles)</span>
+      </div>
+      <div id="ruler">
+        <div id="labels"><div>Picture</div><div>Voice</div><div></div></div>
+        <div id="lanes">
+          <div class="lane" id="lane-picture"></div>
+          <div class="lane" id="lane-voice"></div>
+          <div class="lane" id="lane-ticks"></div>
+          <div id="playhead"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="render-out" hidden>
+      <pre id="render-log"></pre>
+      <video id="result" controls playsinline hidden></video>
+    </section>
+
+    <ol id="beats"></ol>
+
+    <script type="module" src="/editor.js"></script>
+  </body>
+</html>

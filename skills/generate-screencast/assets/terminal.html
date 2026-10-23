@@ -1,7 +1,8 @@
 <!doctype html>
 <!--
   Terminal replay stage. Film it at 1920x1080 and
-  drive it with page.evaluate: __run({ cmd, lines: [[msAfterEnter, html]] }).
+  drive it with page.evaluate: __prompt({ prompt, title }) for the idle screen, then
+  __run({ cmd, lines: [[msAfterEnter, html]], prompt, title }).
   Line HTML may use the classes below (p/cmd/dim/ok/strong/url/badge-*).
   Content must be curated REAL command output, never invented.
 -->
@@ -140,20 +141,25 @@
   <div class="screen" id="screen"></div>
 </div>
 <script>
+  const screen = document.getElementById('screen');
+  const row = (html) => {
+    const el = document.createElement('div');
+    el.className = 'row';
+    el.innerHTML = html;
+    screen.appendChild(el);
+    return el;
+  };
+  const setTitle = (title) => title && (document.getElementById('title').textContent = title);
+
+  // An idle prompt with a caret, for the screen before the command (call it before b.ready()).
+  window.__prompt = ({ prompt = '~', title } = {}) => {
+    setTitle(title);
+    if (!document.getElementById('typed'))
+      row(`<span class="p">➜  ${prompt}</span> <span class="cmd" id="typed"></span><span class="caret" id="caret"></span>`);
+  };
+
   window.__run = ({ cmd, lines, prompt = '~', title }) => {
-    if (title) document.getElementById('title').textContent = title;
-    const screen = document.getElementById('screen');
-    const row = (html) => {
-      const el = document.createElement('div');
-      el.className = 'row';
-      el.innerHTML = html;
-      screen.appendChild(el);
-      return el;
-    };
-    const first = row(
-      `<span class="p">➜  ${prompt}</span> <span class="cmd" id="typed"></span><span class="caret" id="caret"></span>`,
-    );
-    void first;
+    window.__prompt({ prompt, title });
     const typed = document.getElementById('typed');
 
     const TYPE_START = 350;
@@ -171,6 +177,7 @@
     const last = lines[lines.length - 1][0];
     setTimeout(() => {
       document.getElementById('caret').remove();
+      typed.removeAttribute('id');
       row(`<br /><span class="p">➜  ${prompt}</span> <span class="caret"></span>`);
     }, enterAt + last + 500);
   };

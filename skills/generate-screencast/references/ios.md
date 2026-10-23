@@ -20,31 +20,35 @@ burned in as ripples after framing.
 ## Recipe
 
 ```js
-import fs from 'node:fs';
-import { Clock } from './film-helpers.mjs';
-import { activate, frontmostApp, simMapper, startSimRecording, startDriver, sleep } from './native-helpers.mjs';
+import { loadProject } from '<skill>/assets/project.mjs';
+import { activate, frontmostApp, nativeScene, simMapper, startSimRecording, startDriver, sleep } from '<skill>/assets/native-helpers.mjs';
 
-activate('Simulator');
-await sleep(700);
-if (frontmostApp() !== 'Simulator') throw new Error('Simulator not frontmost');
-const toScreen = simMapper(402, 874);   // device size in points; throws if bezels are showing
+const p = loadProject(import.meta.dirname);
 const d = await startDriver();
-const cap = startSimRecording();
-await sleep(1200);
-const clock = new Clock();
-const p = toScreen(339, 422);
-await d.glide(p.x, p.y, 500);
-await clock.until(2400);
-await d.click();
-d.clicks.at(-1).device = [339, 422];    // device coords, for the ripple overlay
-await clock.until(SCENE_MS);
-const { stoppedAt } = await cap.stop('scenes/s2.mp4');   // re-timed to constant 30fps
-d.close();
-fs.writeFileSync('scenes/s2.clicks.json', JSON.stringify({ stoppedAt, clicks: d.clicks }));
+try {
+  await p.film({
+    open: nativeScene(p, async (b) => {
+      activate('Simulator');
+      await sleep(700);
+      if (frontmostApp() !== 'Simulator') throw new Error('Simulator not frontmost');
+      const toScreen = simMapper(402, 874); // device size in points; throws if bezels are showing
+      const cap = startSimRecording();
+      const clock = await b.ready(cap, d);
+      const at = toScreen(339, 422);
+      await d.glide(at.x, at.y, 500);
+      await clock.until(b.at('Open'));
+      await d.click();
+      d.clicks.at(-1).device = [339, 422]; // device coords, for the ripple overlay
+    }),
+  });
+} finally {
+  d.close();
+}
 ```
 
-`simctl` only writes frames when the screen changes; `stop(out)` re-times the file from the real start to the real stop,
-so trim-from-the-end stays aligned.
+`simctl` only writes frames when the screen changes; `stop()` re-times the file from the real start to the real stop
+(constant 30fps), so the end-aligned scene timing holds. `nativeScene` writes `scenes/<id>.capture.json` with the
+clicks and `stoppedAt`.
 
 ## Framing and ripples
 
@@ -52,11 +56,14 @@ so trim-from-the-end stays aligned.
 `--height 820 --top 30` and pass `height: 820, top: 30` to `tapsToFrame`, so the captions get a band below the phone.
 
 ```js
-// node device-frame.mjs scenes/s2.mp4 scenes/s2.framed.mp4
-import { tapsToFrame } from './native-helpers.mjs';
-const pts = tapsToFrame(log.clicks, { stoppedAt: log.stoppedAt, videoDuration /* of s2.framed.mp4 */, devicePx: [1206, 2622], deviceScale: 3 });
-// node ripples.mjs scenes/s2.framed.mp4 s2.ripples.json scenes/s2.r.mp4
+// node <skill>/assets/device-frame.mjs scenes/open.mp4 scenes/open.framed.mp4
+import { tapsToFrame } from '<skill>/assets/native-helpers.mjs';
+const log = JSON.parse(fs.readFileSync('scenes/open.capture.json'));
+const pts = tapsToFrame(log.clicks, { stoppedAt: log.stoppedAt, videoDuration: log.duration, devicePx: [1206, 2622], deviceScale: 3 });
+fs.writeFileSync('scenes/open.ripples.json', JSON.stringify(pts));
+// node <skill>/assets/ripples.mjs scenes/open.framed.mp4 scenes/open.ripples.json scenes/open.r.mp4
+// node <skill>/assets/project.mjs use . open scenes/open.r.mp4
 ```
 
-Portrait (all-mobile videos, if the user chose it): skip `device-frame.mjs`, set `"size": [1080, 1920]` in the assembly
-manifest, and map ripple coords by `1080 / devicePxWidth`.
+Portrait (all-mobile videos, if the user chose it): skip `device-frame.mjs`, set `"size": [1080, 1920]` in
+`screencast.json`, and map ripple coords by `1080 / devicePxWidth`.
