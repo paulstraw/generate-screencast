@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { startEditor } from '../skills/generate-screencast/assets/editor.mjs';
-import { PLAYWRIGHT_HOME, importPlaywright, loadProject, voKey } from '../skills/generate-screencast/assets/project.mjs';
+import { CACHE_DIR, importPlaywright, loadProject, voKey } from '../skills/generate-screencast/assets/project.mjs';
 import { gather, plan, qaKey } from '../skills/generate-screencast/assets/status.mjs';
 import { makeTone, makeVideo, needsFfmpeg, probeDuration, tempDir } from './helpers.mjs';
 
@@ -47,7 +47,7 @@ async function fixture(t) {
 const playwright = await importPlaywright().catch((err) => err);
 const needsPlaywright = needsFfmpeg.skip
   ? needsFfmpeg
-  : { skip: playwright instanceof Error ? `Playwright not installed in ${PLAYWRIGHT_HOME}` : false, timeout: 60_000 };
+  : { skip: playwright instanceof Error ? `Playwright not installed in ${CACHE_DIR}` : false, timeout: 60_000 };
 
 test('editor page: beat rows, and a preview that follows the timeline through J and L cuts', needsPlaywright, async (t) => {
   const dir = await fixture(t);

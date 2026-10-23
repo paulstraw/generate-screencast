@@ -32,6 +32,7 @@
  */
 import { spawn, execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { Clock } from './film-helpers.mjs';
 import { ensureBuilt } from './project.mjs';
@@ -341,7 +342,8 @@ export async function probePermissions(tmpDir, bin) {
  * re-times it from simctl's "Recording started" line to the true stop.
  */
 export function startSimRecording(udid = 'booted') {
-  const raw = `${fs.mkdtempSync('/tmp/simrec-')}/raw.mp4`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'simrec-'));
+  const raw = path.join(dir, 'raw.mp4');
   const proc = spawn('xcrun', ['simctl', 'io', udid, 'recordVideo', '--codec=h264', '--force', raw], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -358,10 +360,13 @@ export function startSimRecording(udid = 'booted') {
     ...h,
     started,
     async stop(out) {
-      const stoppedAt = await h.stop();
-      normalizeVfr(raw, out, (stoppedAt - startedAt) / 1000);
-      fs.rmSync(raw);
-      return { stoppedAt, startedAt };
+      try {
+        const stoppedAt = await h.stop();
+        normalizeVfr(raw, out, (stoppedAt - startedAt) / 1000);
+        return { stoppedAt, startedAt };
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     },
   };
 }

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
-  PLAYWRIGHT_HOME,
+  CACHE_DIR,
   PLAYWRIGHT_VERSION,
   importPlaywright,
   loadProject,
@@ -250,7 +250,7 @@ test('importPlaywright loads another version with a warning naming the pinned on
 const playwright = await importPlaywright().catch((err) => err);
 const needsPlaywright = needsFfmpeg.skip
   ? needsFfmpeg
-  : { skip: playwright instanceof Error ? `Playwright not installed in ${PLAYWRIGHT_HOME}` : false, timeout: 60_000 };
+  : { skip: playwright instanceof Error ? `Playwright not installed in ${CACHE_DIR}` : false, timeout: 60_000 };
 
 // The mean colour of the frame at file time `t`.
 function colorAt(file, t) {

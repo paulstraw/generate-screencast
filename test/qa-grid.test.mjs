@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PLAYWRIGHT_HOME, loadProject, voKey } from '../skills/generate-screencast/assets/project.mjs';
+import { CACHE_DIR, loadProject, voKey } from '../skills/generate-screencast/assets/project.mjs';
 import { qaFrames } from '../skills/generate-screencast/assets/qa-grid.mjs';
 import { timeline } from '../skills/generate-screencast/assets/timeline.mjs';
 import { hasFfmpeg, makeTone, needsFfmpeg, probeDuration, tempDir } from './helpers.mjs';
@@ -15,7 +15,7 @@ const ASSEMBLE = fileURLToPath(new URL('../skills/generate-screencast/assets/ass
 
 let hasPlaywright = false;
 try {
-  createRequire(path.join(PLAYWRIGHT_HOME, 'noop.js')).resolve('playwright');
+  createRequire(path.join(CACHE_DIR, 'noop.js')).resolve('playwright');
   hasPlaywright = true;
 } catch {}
 
@@ -146,7 +146,7 @@ test('with burn-in, grids the render, and asks for one when it is missing', need
   assert.match(r.stderr, /captions are burned in, so "two" is gridded from the render, which is missing: run node assemble/);
   assert.equal(run(QA_GRID, dir, 'two', '--scene').status, 0);
 
-  if (!hasFfmpeg || !hasPlaywright) return t.skip(`Playwright not installed in ${PLAYWRIGHT_HOME}`);
+  if (!hasFfmpeg || !hasPlaywright) return t.skip(`Playwright not installed in ${CACHE_DIR}`);
   const a = run(ASSEMBLE, dir, '--force');
   assert.equal(a.status, 0, a.stderr);
   const g = run(QA_GRID, dir, 'two');

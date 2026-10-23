@@ -50,24 +50,27 @@ const outside = (w, h, r, o) =>
   `hypot(max(${o + r}-X,max(X-(${o + w - 1 - r}),0)),max(${o + r}-Y,max(Y-(${o + h - 1 - r}),0)))`;
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devframe-'));
-const bg = path.join(dir, 'bg.png');
-const shadow = path.join(dir, 'shadow.png');
-const mask = path.join(dir, 'mask.png');
-const d = 'hypot(X-960,Y-454)/1100';
-still('1920x1080', 'rgb24', `r='clip(23-12*${d},11,23)':g='clip(26-13*${d},13,26)':b='clip(35-17*${d},18,35)'`, bg);
-still(`${W + 2 * PAD}x${H + 2 * PAD}`, 'rgba',
-  `r=0:g=0:b=0:a='140*clip(1-(${outside(W, H, R, PAD)}-${R})/${PAD},0,1)'`, shadow);
-still(`${W}x${H}`, 'gray', `lum='255*clip(${R}+0.5-${outside(W, H, R, 0)},0,1)'`, mask);
+try {
+  const bg = path.join(dir, 'bg.png');
+  const shadow = path.join(dir, 'shadow.png');
+  const mask = path.join(dir, 'mask.png');
+  const d = 'hypot(X-960,Y-454)/1100';
+  still('1920x1080', 'rgb24', `r='clip(23-12*${d},11,23)':g='clip(26-13*${d},13,26)':b='clip(35-17*${d},18,35)'`, bg);
+  still(`${W + 2 * PAD}x${H + 2 * PAD}`, 'rgba',
+    `r=0:g=0:b=0:a='140*clip(1-(${outside(W, H, R, PAD)}-${R})/${PAD},0,1)'`, shadow);
+  still(`${W}x${H}`, 'gray', `lum='255*clip(${R}+0.5-${outside(W, H, R, 0)},0,1)'`, mask);
 
-const filter = [
-  `[0:v]fps=30,scale=${W}:${H}:flags=lanczos,format=rgba[v0]`,
-  `[v0][3:v]alphamerge[dev]`,
-  `[1:v][2:v]overlay=(W-w)/2:${TOP - PAD + 14}[b2]`,
-  `[b2][dev]overlay=(W-w)/2:${TOP}:shortest=1,format=yuv420p[v]`,
-].join(';');
-const loop = (f) => ['-loop', '1', '-framerate', '30', '-t', dur, '-i', f];
-ff('-i', input, ...loop(bg), ...loop(shadow), ...loop(mask),
-  '-filter_complex', filter, '-map', '[v]', '-map', '0:a?', '-r', '30',
-  '-c:v', 'libx264', '-crf', '19', '-c:a', 'copy', output);
-fs.rmSync(dir, { recursive: true, force: true });
+  const filter = [
+    `[0:v]fps=30,scale=${W}:${H}:flags=lanczos,format=rgba[v0]`,
+    `[v0][3:v]alphamerge[dev]`,
+    `[1:v][2:v]overlay=(W-w)/2:${TOP - PAD + 14}[b2]`,
+    `[b2][dev]overlay=(W-w)/2:${TOP}:shortest=1,format=yuv420p[v]`,
+  ].join(';');
+  const loop = (f) => ['-loop', '1', '-framerate', '30', '-t', dur, '-i', f];
+  ff('-i', input, ...loop(bg), ...loop(shadow), ...loop(mask),
+    '-filter_complex', filter, '-map', '[v]', '-map', '0:a?', '-r', '30',
+    '-c:v', 'libx264', '-crf', '19', '-c:a', 'copy', output);
+} finally {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
 console.log(`framed → ${output}`);

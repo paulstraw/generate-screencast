@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { scriptMarkdown } from '../skills/generate-screencast/assets/assemble.mjs';
-import { PLAYWRIGHT_HOME, loadProject, voKey } from '../skills/generate-screencast/assets/project.mjs';
+import { CACHE_DIR, loadProject, voKey } from '../skills/generate-screencast/assets/project.mjs';
 import { gather, plan, qaKey } from '../skills/generate-screencast/assets/status.mjs';
 import { hasFfmpeg, makeTone, probeDuration, tempDir } from './helpers.mjs';
 
@@ -14,11 +14,11 @@ const ASSEMBLE = fileURLToPath(new URL('../skills/generate-screencast/assets/ass
 
 let hasPlaywright = false;
 try {
-  createRequire(path.join(PLAYWRIGHT_HOME, 'noop.js')).resolve('playwright');
+  createRequire(path.join(CACHE_DIR, 'noop.js')).resolve('playwright');
   hasPlaywright = true;
 } catch {}
 const needs = {
-  skip: !hasFfmpeg ? 'ffmpeg/ffprobe not installed' : !hasPlaywright ? `Playwright not installed in ${PLAYWRIGHT_HOME}` : false,
+  skip: !hasFfmpeg ? 'ffmpeg/ffprobe not installed' : !hasPlaywright ? `Playwright not installed in ${CACHE_DIR}` : false,
 };
 
 const ffmpeg = (...args) => execFileSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', ...args]);

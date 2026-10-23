@@ -49,8 +49,9 @@
  *   node project.mjs build mousectl|camrec   // compiles a native helper into the shared cache if it's missing or
  *                                            // stale, and prints its path (ensureBuilt)
  *
- * Playwright and Chromium live once per machine in ~/.cache/generate-screencast (PLAYWRIGHT_INSTALL), never in the
- * project or the user's repo; importPlaywright() loads them from there.
+ * Playwright and Chromium live once per machine in ~/.cache/generate-screencast (CACHE_DIR, via PLAYWRIGHT_INSTALL),
+ * never in the project or the user's repo; importPlaywright() loads them from there. The native helpers (mousectl,
+ * camrec) are built beside them by ensureBuilt().
  *
  * screencast.schema.json describes the same shape for editor autocomplete. Validation is hand-rolled rather than a
  * schema library because the skill has no npm dependencies; `validateShape` mirrors the schema rule for rule (a test
@@ -710,7 +711,8 @@ export function useVariant(p, id, file) {
   return p.build.beats[id].scene;
 }
 
-export const PLAYWRIGHT_HOME = path.join(os.homedir(), '.cache', 'generate-screencast');
+// The skill's per-machine cache: Playwright, and the native helpers ensureBuilt() compiles.
+export const CACHE_DIR = path.join(os.homedir(), '.cache', 'generate-screencast');
 // The Playwright the skill is tested with. Bump it deliberately; other versions still load, with a warning.
 export const PLAYWRIGHT_VERSION = '1.64.1';
 export const PLAYWRIGHT_INSTALL =
@@ -718,7 +720,7 @@ export const PLAYWRIGHT_INSTALL =
   `npm i playwright@${PLAYWRIGHT_VERSION} && npx playwright install chromium`;
 
 // Playwright from the shared per-machine install. Throws with the install command when it's missing.
-export async function importPlaywright(home = PLAYWRIGHT_HOME) {
+export async function importPlaywright(home = CACHE_DIR) {
   const require = createRequire(path.join(home, 'noop.js'));
   let resolved;
   try {
@@ -739,7 +741,7 @@ export async function importPlaywright(home = PLAYWRIGHT_HOME) {
 
 // A helper binary compiled from <src>/<name>.swift into the shared cache, rebuilt whenever the source is newer.
 // Returns its path. Needs swiftc (Xcode or the Command Line Tools).
-export function ensureBuilt(name, { dir = PLAYWRIGHT_HOME, src = import.meta.dirname, log = console.log } = {}) {
+export function ensureBuilt(name, { dir = CACHE_DIR, src = import.meta.dirname, log = console.log } = {}) {
   const bin = path.join(dir, name);
   const source = path.join(src, `${name}.swift`);
   if (fs.existsSync(bin) && fs.statSync(bin).mtimeMs >= fs.statSync(source).mtimeMs) return bin;
