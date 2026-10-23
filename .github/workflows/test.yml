@@ -1,0 +1,57 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      # A static build of a current release, not Ubuntu's: apt's ffmpeg is several versions behind what users get from
+      # Homebrew (older versions count MP3 encoder padding into durations, which moves frame-exact cuts), and it takes
+      # minutes to install.
+      - name: Install ffmpeg
+        run: |
+          curl -fsSL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz \
+            | tar -xJ -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/ffmpeg-n9.0-latest-linux64-gpl-9.0/bin" >> "$GITHUB_PATH"
+
+      # The skill's own install command and pinned version, so CI installs exactly what the docs tell users to.
+      - name: Read the pinned Playwright
+        id: pw
+        run: |
+          node --input-type=module -e "
+            import { PLAYWRIGHT_VERSION, PLAYWRIGHT_INSTALL } from './skills/generate-screencast/assets/project.mjs';
+            console.log('version=' + PLAYWRIGHT_VERSION);
+            console.log('install=' + PLAYWRIGHT_INSTALL);
+          " >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: |
+            ~/.cache/generate-screencast
+            ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Install Playwright
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: ${{ steps.pw.outputs.install }}
+
+      # System libraries Chromium needs; apt packages aren't in the cache, so this runs every time.
+      - name: Install Chromium's system dependencies
+        run: cd ~/.cache/generate-screencast && npx playwright install-deps chromium
+
+      - run: node --test test/*.test.mjs
