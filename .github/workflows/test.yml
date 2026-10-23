@@ -50,8 +50,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: ${{ steps.pw.outputs.install }}
 
-      # System libraries Chromium needs; apt packages aren't in the cache, so this runs every time.
-      - name: Install Chromium's system dependencies
-        run: cd ~/.cache/generate-screencast && npx playwright install-deps chromium
+      # No `playwright install-deps`: the runner image (which ships Google Chrome) already has the libraries headless
+      # Chromium needs, and that step's apt downloads sometimes crawl for ten minutes.
 
       - run: node --test test/*.test.mjs
