@@ -82,8 +82,12 @@ export class Clock {
     this.t0 = Date.now();
   }
   async until(ms) {
-    const d = this.t0 + ms - Date.now();
-    if (d > 0) await sleep(d);
-    else if (d < -400) console.warn(`clock overrun ${-d}ms at mark ${ms}`);
+    let d = this.t0 + ms - Date.now();
+    if (d < -400) console.warn(`clock overrun ${-d}ms at mark ${ms}`);
+    // setTimeout can fire a millisecond early by Date.now(); never return before the mark.
+    while (d > 0) {
+      await sleep(d);
+      d = this.t0 + ms - Date.now();
+    }
   }
 }

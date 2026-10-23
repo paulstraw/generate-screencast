@@ -628,7 +628,7 @@ const SYNC_FLASH = () =>
       const d = document.createElement('div');
       d.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#f0f;pointer-events:none';
       document.documentElement.appendChild(d);
-      resolve(performance.timeOrigin + performance.now());
+      resolve(Date.now()); // the Clock's own clock: performance.timeOrigin drifts from it by a millisecond or so
     }),
   );
 
